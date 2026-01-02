@@ -1,0 +1,51 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: er-psscripter-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PROJECT_NAME=ER-PSScripter
+      - DATABASE_URL=postgresql://user:password@db:5432/erpsscripter
+      - BACKEND_CORS_ORIGINS=["http://localhost:8080","http://localhost:5173"]
+    depends_on:
+      - db
+    networks:
+      - er-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: er-psscripter-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - er-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: er-psscripter-db
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=erpsscripter
+    networks:
+      - er-network
+
+volumes:
+  postgres_data:
+
+
+networks:
+  er-network:
+    driver: bridge
