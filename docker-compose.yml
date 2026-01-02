@@ -6,11 +6,11 @@ services:
     container_name: er-psscripter-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "13021:8000"
     environment:
       - PROJECT_NAME=ER-PSScripter
       - DATABASE_URL=postgresql://user:password@db:5432/erpsscripter
-      - BACKEND_CORS_ORIGINS=["http://localhost:8080","http://localhost:5173"]
+      - BACKEND_CORS_ORIGINS=["http://localhost:13020","http://localhost:5173"]
     depends_on:
       - db
     networks:
@@ -23,7 +23,7 @@ services:
     container_name: er-psscripter-frontend
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "13020:80"
     depends_on:
       - backend
     networks:
