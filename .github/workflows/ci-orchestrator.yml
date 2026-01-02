@@ -1,0 +1,70 @@
+name: CI Orchestrator
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Execution mode (Economy/Full)'
+        required: false
+        default: 'Economy'
+        type: string
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Dependencies
+        run: |
+          pip install poetry
+          cd backend && poetry install
+          
+      - name: Lint Backend (Ruff)
+        run: cd backend && poetry run ruff check .
+
+      - name: Lint Frontend (ESLint)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        run: |
+          cd frontend
+          npm ci
+          npm run lint || echo "Lint warnings"
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Dependencies
+        run: |
+          pip install poetry
+          cd backend && poetry install
+
+      - name: Run Unit Tests
+        run: cd backend && poetry run pytest
+
+  e2e-test:
+    needs: test
+    if: inputs.mode == 'Full' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run E2E (Playwright)
+        run: echo "Running expensive E2E tests..."

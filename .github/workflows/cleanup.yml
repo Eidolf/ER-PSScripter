@@ -1,0 +1,15 @@
+name: Cleanup Artifacts
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old artifacts
+        uses: actions/delete-artifact@v4
+        with:
+          name: archive-log
+          delete-tags: true

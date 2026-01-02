@@ -1,0 +1,48 @@
+name: PR Assistant (The Janitor)
+
+on:
+  pull_request:
+    types: [opened, synchronized]
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install ruff
+
+      - name: Run Ruff Auto-fix
+        run: ruff check --fix backend/
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-fix linting issues"
+          branch: ${{ github.head_ref }}
+          
+  error-reporter:
+    needs: auto-fix
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report Failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "## ⚠️ Pipeline Failure\n\nA step failed in the pipeline. Please check the logs."
+            })
