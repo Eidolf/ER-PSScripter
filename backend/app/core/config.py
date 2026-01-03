@@ -1,4 +1,6 @@
+
 from typing import List, Union
+import json
 
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +17,8 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
         elif isinstance(v, (list, str)):
+            if isinstance(v, str) and v.startswith("["):
+                return json.loads(v)
             return v
         raise ValueError(v)
 
