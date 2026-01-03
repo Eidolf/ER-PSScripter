@@ -25,6 +25,7 @@ RUN chmod +x /app/entrypoint.sh
 
 # Non-root user for security
 RUN useradd -m -u 1000 user
+RUN chown -R user:user /app
 USER user
 
 CMD ["/app/entrypoint.sh"]
