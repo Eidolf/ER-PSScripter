@@ -9,7 +9,7 @@ services:
       - "13021:8000"
     environment:
       - PROJECT_NAME=ER-PSScripter
-      - DATABASE_URL=postgresql://user:password@db:5432/erpsscripter
+      - DATABASE_URL=sqlite:///./app.db
       - BACKEND_CORS_ORIGINS=["http://localhost:13020","http://localhost:5173"]
     depends_on:
       - db
