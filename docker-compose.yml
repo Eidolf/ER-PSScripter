@@ -9,8 +9,10 @@ services:
       - "13021:8000"
     environment:
       - PROJECT_NAME=ER-PSScripter
-      - DATABASE_URL=sqlite:///./app.db
+      - DATABASE_URL=sqlite:////app/data/app.db
       - BACKEND_CORS_ORIGINS=["http://localhost:13020","http://localhost:5173"]
+    volumes:
+      - ./backend/data:/app/data
     depends_on:
       - db
     networks:
