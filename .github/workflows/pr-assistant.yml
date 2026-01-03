@@ -1,8 +1,9 @@
 name: PR Assistant (The Janitor)
 
 on:
-  pull_request:
-    types: [opened, synchronized]
+  workflow_dispatch:
+  # pull_request:
+  #   types: [opened, synchronized]
 
 jobs:
   auto-fix:

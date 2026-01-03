@@ -1,8 +1,9 @@
 name: Nightly Maintenance
 
 on:
-  schedule:
-    - cron: '0 0 * * 6' # Weekly on Saturday
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 0 * * 6' # Weekly on Saturday
 
 jobs:
   nightly-check:

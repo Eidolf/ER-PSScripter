@@ -1,5 +1,7 @@
 from typing import Any
-from fastapi import APIRouter, HTTPException, Depends
+
+from fastapi import APIRouter, HTTPException
+
 from app.models.script_models import ScriptRequest, ScriptResponse
 from app.services.ai_generator import AIGeneratorService
 
@@ -15,4 +17,4 @@ async def generate_script(request: ScriptRequest) -> Any:
         result = await ai_service.generate_script(request)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

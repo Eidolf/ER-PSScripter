@@ -1,11 +1,12 @@
 import os
 import re
-from typing import List
+
 from app.schemas.snippet import SnippetCreate
 
+
 class ScriptAnalyzerService:
-    def analyze_folder(self, folder_path: str) -> List[SnippetCreate]:
-        snippets = []
+    def analyze_folder(self, folder_path: str) -> list[SnippetCreate]:
+        snippets: list[SnippetCreate] = []
         if not os.path.exists(folder_path):
             return snippets
 
@@ -14,7 +15,7 @@ class ScriptAnalyzerService:
                 if file.endswith(".ps1"):
                     full_path = os.path.join(root, file)
                     try:
-                        with open(full_path, "r", encoding="utf-8") as f:
+                        with open(full_path, encoding="utf-8") as f:
                             content = f.read()
                             extracted = self._extract_functions(content, file)
                             snippets.extend(extracted)
@@ -22,12 +23,12 @@ class ScriptAnalyzerService:
                         print(f"Error reading {file}: {e}")
         return snippets
 
-    def _extract_functions(self, content: str, source: str) -> List[SnippetCreate]:
+    def _extract_functions(self, content: str, source: str) -> list[SnippetCreate]:
         found_snippets = []
         
         # Regex to find functions: function Name { ... }
         # Note: This is a simplified parser and might not handle nested braces correctly without a full parser.
-        # For this MVP, we will try to match simple top-level functions or just capture the whole file if no function is found.
+        # For this MVP, we will try to match simple top-level functions or just capture the whole file.
         
         function_pattern = re.compile(r"function\s+([\w-]+)\s*\{", re.IGNORECASE)
         
@@ -40,7 +41,7 @@ class ScriptAnalyzerService:
             # and just identify that functions exist.
             
             # Let's try to grab a block of text.
-            start = match.start()
+            # match.start()
             # We'll just take the whole file content for now but tag it with the function name
             # Real parsing requires a ton of logic or PSScriptAnalyzer.
             

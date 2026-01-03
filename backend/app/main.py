@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,8 +7,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 from structlog import get_logger
 
-from app.core.config import settings
 from app.api.v1.api import api_router
+from app.core.config import settings
 
 # Observability Setup
 trace.set_tracer_provider(TracerProvider())
@@ -43,7 +43,7 @@ else:
 # Security: Helmet-like headers
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next: Any) -> Response:
-    response = await call_next(request)
+    response: Response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -55,11 +55,11 @@ async def startup_event() -> None:
     logger.info("Starting up ER-PSScripter Backend...")
 
 @app.get("/health")
-def health_check() -> Dict[str, str]:
+def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 @app.get("/ready")
-def readiness_check() -> Dict[str, str]:
+def readiness_check() -> dict[str, str]:
     return {"status": "ready"}
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

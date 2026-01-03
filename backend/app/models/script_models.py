@@ -1,22 +1,23 @@
-from typing import List, Optional
-from pydantic import BaseModel, HttpUrl
+
+from pydantic import BaseModel
+
 
 class ScriptRequest(BaseModel):
     name: str
     description: str
-    requirements: List[str]
-    input_sources: Optional[List[str]] = None  # Local paths or URLs
+    requirements: list[str]
+    input_sources: list[str] | None = None  # Local paths or URLs
     include_header: bool = True
-    custom_header_text: Optional[str] = None
+    custom_header_text: str | None = None
 
 class ScriptResponse(BaseModel):
     name: str
     content: str
-    optimization_suggestions: List[str]
-    used_snippets: List[str]
+    optimization_suggestions: list[str]
+    used_snippets: list[str]
 
 class SnippetCreate(BaseModel):
     name: str
     content: str
-    tags: List[str]
+    tags: list[str]
     source: str

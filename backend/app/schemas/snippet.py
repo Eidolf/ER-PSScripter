@@ -1,13 +1,14 @@
-from typing import List, Optional
 from datetime import datetime
+
 from pydantic import BaseModel
+
 
 class SnippetBase(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     content: str
-    tags: List[str] = []
-    source: Optional[str] = None
+    tags: list[str] = []
+    source: str | None = None
 
 class SnippetCreate(SnippetBase):
     pass

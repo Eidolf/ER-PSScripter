@@ -1,16 +1,17 @@
-from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from app.api import deps
 from app.models.snippet import Snippet
 from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
-
 from app.services.script_analyzer import ScriptAnalyzerService
 
 router = APIRouter()
 analyzer = ScriptAnalyzerService()
 
-@router.post("/analyze", response_model=List[SnippetCreate])
+@router.post("/analyze", response_model=list[SnippetCreate])
 def analyze_folder(
     folder_path: str,
     db: Session = Depends(deps.get_db)
@@ -22,7 +23,7 @@ def analyze_folder(
     snippets = analyzer.analyze_folder(folder_path)
     return snippets
 
-@router.get("/", response_model=List[SnippetResponse])
+@router.get("/", response_model=list[SnippetResponse])
 def list_snippets(
     skip: int = 0,
     limit: int = 100,

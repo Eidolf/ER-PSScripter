@@ -1,5 +1,6 @@
 from app.models.script_models import ScriptRequest, ScriptResponse
 
+
 class AIGeneratorService:
     async def generate_script(self, request: ScriptRequest) -> ScriptResponse:
         # TODO: Integrate with real AI backend (OpenAI/Anthropic)
