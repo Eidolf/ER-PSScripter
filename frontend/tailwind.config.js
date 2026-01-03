@@ -8,5 +8,5 @@ export default {
         extend: {},
     },
     plugins: [],
-    darkMode: 'media', // or 'class'
+    darkMode: 'class',
 }

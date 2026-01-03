@@ -32,13 +32,18 @@ export default function SnippetLibrary() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        await createSnippet({
-            ...formData,
-            tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean)
-        });
-        setShowForm(false);
-        setFormData({ name: '', content: '', description: '', tags: '' });
-        loadSnippets();
+        try {
+            await createSnippet({
+                ...formData,
+                tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean)
+            });
+            setShowForm(false);
+            setFormData({ name: '', content: '', description: '', tags: '' });
+            loadSnippets();
+        } catch (error) {
+            console.error("Failed to save snippet", error);
+            alert("Failed to save snippet. Please check backend connection.");
+        }
     }
 
     if (loading) return <div className="p-4 text-center">Loading...</div>;
