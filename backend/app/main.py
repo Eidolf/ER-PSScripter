@@ -26,14 +26,19 @@ app = FastAPI(
 )
 
 # Security: CORS
+# Security: CORS
 if settings.BACKEND_CORS_ORIGINS:
+    origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
+    print(f"DEBUG: Allowed CORS Origins: {origins}")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+else:
+    print("DEBUG: No CORS Origins configured!")
 
 # Security: Helmet-like headers
 @app.middleware("http")

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:13021/api/v1';
+const API_URL = '/api/v1';
 
 export interface Snippet {
     id: number;
