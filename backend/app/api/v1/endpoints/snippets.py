@@ -21,7 +21,26 @@ def analyze_folder(
     Does not save automatically, purely returns found candidates.
     """
     snippets = analyzer.analyze_folder(folder_path)
+    snippets = analyzer.analyze_folder(folder_path)
     return snippets
+
+@router.get("/tags", response_model=list[str])
+def get_unique_tags(
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Get all unique tags used across snippets.
+    """
+    # Fetch all tags. Since tags are stored as JSON array, we might need to fetch all and aggregate in python 
+    # or use specific SQL if supported. For SQLite/JSON, it's safer to fetch and process if dataset is small,
+    # or use func.json_each if we want to be fancy but let's stick to simple first.
+    snippets = db.query(Snippet.tags).all()
+    unique_tags = set()
+    for s in snippets:
+        if s.tags:
+            for tag in s.tags:
+                unique_tags.add(tag)
+    return sorted(list(unique_tags))
 
 @router.get("/", response_model=list[SnippetResponse])
 def list_snippets(
@@ -49,6 +68,7 @@ def create_snippet(
         description=snippet_in.description,
         content=snippet_in.content,
         tags=snippet_in.tags,
+        category=snippet_in.category,
         source=snippet_in.source
     )
     db.add(snippet)

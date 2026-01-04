@@ -11,6 +11,7 @@ class Snippet(Base):
     description = Column(Text, nullable=True)
     content = Column(Text, nullable=False)
     tags = Column(JSON, default=list)  # Storing list of strings
+    category = Column(String, default="General", index=True)
     source = Column(String, nullable=True)  # File path or URL
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

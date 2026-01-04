@@ -8,6 +8,7 @@ class SnippetBase(BaseModel):
     description: str | None = None
     content: str
     tags: list[str] = []
+    category: str = "General"
     source: str | None = None
 
 class SnippetCreate(SnippetBase):

@@ -13,6 +13,7 @@ services:
       - BACKEND_CORS_ORIGINS=["http://localhost:13020","http://localhost:5173"]
     volumes:
       - ./backend/data:/app/data
+      - /home/dev/Documents:/home/dev/Documents
     depends_on:
       - db
     networks:

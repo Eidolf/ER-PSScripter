@@ -2,5 +2,6 @@
 # imported by Alembic
 from app.db.base_class import Base  # noqa
 from app.models.snippet import Snippet  # noqa
+from app.models.setting import SystemSetting  # noqa
 
 __all__ = ["Base", "Snippet"]
