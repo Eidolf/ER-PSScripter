@@ -1,8 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getSnippets, createSnippet, updateSnippet, deleteSnippet, analyzeFolder } from '../api/snippets';
-import type { Snippet } from '../api/snippets';
+import type { Snippet, SnippetCreate } from '../api/snippets';
 import { getSettings } from '../api/settings';
 import { STANDARD_CATEGORIES, SYSTEM_SETTING_CUSTOM_CATEGORIES } from '../utils/categories';
+import TagInput from '../components/TagInput';
+
+// Helper: yyyy/mm/dd format
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}/${mm}/${dd}`;
+};
 
 export default function SnippetLibrary() {
     const [snippets, setSnippets] = useState<Snippet[]>([]);
@@ -28,7 +39,7 @@ export default function SnippetLibrary() {
     const [showImportModal, setShowImportModal] = useState(false);
     const [importPath, setImportPath] = useState('');
     const [analyzing, setAnalyzing] = useState(false);
-    const [detectedSnippets, setDetectedSnippets] = useState<any[]>([]);
+    const [detectedSnippets, setDetectedSnippets] = useState<(SnippetCreate & { _tempId: number })[]>([]);
     const [snippetsToImport, setSnippetsToImport] = useState<number[]>([]);
 
     useEffect(() => {
@@ -64,8 +75,14 @@ export default function SnippetLibrary() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
+            let finalName = formData.name.trim();
+            if (!finalName.toLowerCase().endsWith('.ps1')) {
+                finalName += '.ps1';
+            }
+
             await createSnippet({
                 ...formData,
+                name: finalName,
                 tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
                 category: formData.category || 'General'
             });
@@ -82,8 +99,14 @@ export default function SnippetLibrary() {
         e.preventDefault();
         if (!selectedSnippet) return;
         try {
+            let finalName = editData.name.trim();
+            if (!finalName.toLowerCase().endsWith('.ps1')) {
+                finalName += '.ps1';
+            }
+
             const updated = await updateSnippet(selectedSnippet.id, {
                 ...editData,
+                name: finalName,
                 tags: editData.tags.split(',').map(t => t.trim()).filter(Boolean),
                 category: editData.category || 'General'
             });
@@ -110,7 +133,7 @@ export default function SnippetLibrary() {
     const openModal = (snippet: Snippet) => {
         setSelectedSnippet(snippet);
         setEditData({
-            name: snippet.name,
+            name: snippet.name.endsWith('.ps1') ? snippet.name.slice(0, -4) : snippet.name,
             content: snippet.content,
             description: snippet.description || '',
             tags: snippet.tags.join(', '),
@@ -128,6 +151,73 @@ export default function SnippetLibrary() {
         }
     };
 
+    const handleExportBackup = () => {
+        const jsonString = JSON.stringify(snippets, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = href;
+        link.download = `ER-PSScripter_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const content = e.target?.result as string;
+                const importedSnippets = JSON.parse(content);
+
+                if (!Array.isArray(importedSnippets)) {
+                    throw new Error("Invalid backup file format");
+                }
+
+                let successCount = 0;
+                for (const snippet of importedSnippets) {
+                    // Basic validation
+                    if (snippet.name && snippet.content) {
+                        // Clean up ID to force creation of new entry or handle upsert logic if needed
+                        // For now we treat them as new imports to avoid ID conflicts
+                        const { id, ...snippetData } = snippet; // eslint-disable-line @typescript-eslint/no-unused-vars
+                        await createSnippet({
+                            ...snippetData,
+                            source: 'Imported',
+                            tags: Array.isArray(snippet.tags) ? snippet.tags : [],
+                            category: snippet.category || 'General'
+                        });
+                        successCount++;
+                    }
+                }
+
+                alert(`Backup Restored: Successfully imported ${successCount} snippets.`);
+                loadData();
+            } catch (err) {
+                console.error("Backup restore failed", err);
+                alert("Failed to restore backup. Invalid JSON file.");
+            }
+        };
+        reader.readAsText(file);
+        // Reset input
+        event.target.value = '';
+    };
+
+    const handleDownloadSnippet = (snippet: Snippet) => {
+        const blob = new Blob([snippet.content], { type: 'text/plain' });
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = href;
+        const filename = snippet.name.toLowerCase().endsWith('.ps1') ? snippet.name : `${snippet.name}.ps1`;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const toggleTagFilter = (tag: string) => {
         setSelectedTags(prev =>
             prev.includes(tag)
@@ -142,9 +232,9 @@ export default function SnippetLibrary() {
         try {
             const results = await analyzeFolder(importPath);
             // Add a temporary ID for selection
-            const resultsWithId = results.map((s: any, idx: number) => ({ ...s, _tempId: idx }));
+            const resultsWithId = results.map((s: SnippetCreate, idx: number) => ({ ...s, _tempId: idx }));
             setDetectedSnippets(resultsWithId);
-            setSnippetsToImport(resultsWithId.map((s: any) => s._tempId)); // Select all by default
+            setSnippetsToImport(resultsWithId.map((s) => s._tempId)); // Select all by default
         } catch (error) {
             console.error("Analysis failed", error);
             alert("Failed to analyze folder. Ensure path exists on server.");
@@ -161,8 +251,9 @@ export default function SnippetLibrary() {
             // Sequential import to avoid overwhelming backend/db
             for (const s of toImport) {
                 // Remove temp ID
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { _tempId, ...snippetData } = s;
-                await createSnippet(snippetData);
+                await createSnippet({ ...snippetData, source: 'Imported' });
             }
             alert(`Successfully imported ${toImport.length} snippets!`);
             setShowImportModal(false);
@@ -201,6 +292,27 @@ export default function SnippetLibrary() {
     const allTags = Array.from(new Set(snippets.flatMap(s => s.tags))).sort();
     const filteredTags = allTags.filter(tag => tag.toLowerCase().includes(tagSearchQuery.toLowerCase()));
 
+    // Group by Category
+    const groupedSnippets = useMemo(() => {
+        const groups: { [key: string]: Snippet[] } = {};
+
+        filteredSnippets.forEach(s => {
+            const cat = s.category || 'General';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(s);
+        });
+
+        return groups;
+    }, [filteredSnippets]);
+
+    // Sorted categories for display (Standard -> Custom -> Others)
+    const displayCategories = useMemo(() => {
+        const presentCats = Object.keys(groupedSnippets);
+        const standard = STANDARD_CATEGORIES.filter(c => presentCats.includes(c));
+        const custom = presentCats.filter(c => !STANDARD_CATEGORIES.includes(c)).sort();
+        return [...standard, ...custom];
+    }, [groupedSnippets]);
+
     if (loading) return <div className="p-4 text-center">Loading...</div>;
 
     return (
@@ -217,6 +329,35 @@ export default function SnippetLibrary() {
                     >
                         Import Folder
                     </button>
+                    <div className="relative group">
+                        <button
+                            className="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 px-4 py-2 rounded-lg transition flex items-center gap-2"
+                        >
+                            <span>Backup</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div className="absolute right-0 pt-2 w-48 z-20 hidden group-hover:block">
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                                <button
+                                    onClick={handleExportBackup}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                >
+                                    Export Backup (JSON)
+                                </button>
+                                <label className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer block">
+                                    <span>Import Backup (JSON)</span>
+                                    <input
+                                        type="file"
+                                        accept=".json"
+                                        className="hidden"
+                                        onChange={handleImportBackup}
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                     <button
                         onClick={() => setShowForm(!showForm)}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-md"
@@ -329,85 +470,120 @@ export default function SnippetLibrary() {
                             onChange={e => setFormData({ ...formData, content: e.target.value })}
                             required
                         />
-                        <input
+                        <TagInput
                             placeholder="Tags (comma separated)"
-                            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                             value={formData.tags}
-                            onChange={e => setFormData({ ...formData, tags: e.target.value })}
+                            onChange={(val) => setFormData({ ...formData, tags: val })}
                         />
                         <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded">Save</button>
                     </form>
                 </div>
             )}
 
-            {/* Snippet Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredSnippets.map(snippet => (
-                    <div key={snippet.id} className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-100 dark:border-gray-700 flex flex-col hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start mb-2">
-                            <h3
-                                onClick={() => openModal(snippet)}
-                                className="font-bold text-lg text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                            >
-                                {snippet.name}
-                            </h3>
-                            <span className="text-xs bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded text-purple-600 dark:text-purple-300 mr-2">
-                                {snippet.category || 'General'}
-                            </span>
-                            <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-gray-600 dark:text-gray-300">
-                                {snippet.source || 'Manual'}
-                            </span>
-                        </div>
-
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex-grow line-clamp-2">
-                            {snippet.description || 'No description'}
-                        </p>
-
-                        <div className="relative group bg-gray-900 text-gray-100 p-3 rounded text-xs font-mono mb-4 overflow-hidden">
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    copyToClipboard(snippet.content);
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-gray-700 hover:bg-gray-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Copy full code"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                </svg>
-                            </button>
-                            <pre className="overflow-x-auto custom-scrollbar">{snippet.content.substring(0, 150)}{snippet.content.length > 150 ? '...' : ''}</pre>
-                        </div>
-
-                        <div className="flex justify-between items-center mt-auto">
-                            <div className="flex gap-2 flex-wrap">
-                                {snippet.tags.map(tag => (
-                                    <span
-                                        key={tag}
-                                        onClick={(e) => { e.stopPropagation(); toggleTagFilter(tag); }}
-                                        className={`text-xs cursor-pointer hover:underline ${selectedTags.includes(tag) ? 'font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1 rounded' : 'text-blue-600 dark:text-blue-400'}`}
-                                    >
-                                        #{tag}
-                                    </span>
-                                ))}
-                            </div>
-                            <button
-                                onClick={() => handleDelete(snippet.id)}
-                                className="text-red-500 hover:text-red-700 text-sm"
-                            >
-                                Delete
-                            </button>
-                        </div>
+            {/* Snippet Groups */}
+            <div className="space-y-6">
+                {displayCategories.length === 0 && !loading && (
+                    <div className="text-center py-12 text-gray-500">
+                        No snippets found. Create one or analyze a folder.
                     </div>
+                )}
+
+                {displayCategories.map(cat => (
+                    <details key={cat} open className="group bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
+                        <summary className="p-4 bg-gray-50 dark:bg-gray-700/50 cursor-pointer font-bold text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition flex items-center gap-2 select-none">
+                            <span className="transform group-open:rotate-90 transition-transform">▶</span>
+                            {cat}
+                            <span className="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded-full ml-auto text-gray-600 dark:text-gray-300">
+                                {groupedSnippets[cat]?.length || 0}
+                            </span>
+                        </summary>
+                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 border-t border-gray-100 dark:border-gray-700">
+                            {groupedSnippets[cat]?.map(snippet => (
+                                <div key={snippet.id} className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-100 dark:border-gray-700 flex flex-col hover:shadow-md transition-shadow">
+                                    <div className="flex flex-col mb-4">
+                                        <h3
+                                            onClick={() => openModal(snippet)}
+                                            className="font-bold text-lg text-gray-900 dark:text-white cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate pr-2"
+                                            title={snippet.name}
+                                        >
+                                            {snippet.name}
+                                        </h3>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2" title={snippet.description}>
+                                            {snippet.description || 'No description'}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex justify-between items-center mb-2">
+                                        <div className="flex gap-2">
+                                            <span className={`text-xs px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${snippet.source === 'AI Generator'
+                                                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300'
+                                                : snippet.source === 'Imported'
+                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300'
+                                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                                }`}>
+                                                {snippet.source === 'AI Generator' ? 'AI Generated' : snippet.source === 'Imported' ? 'Imported' : 'Created'}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-gray-400">
+                                                {formatDate(snippet.created_at)}
+                                            </span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDownloadSnippet(snippet);
+                                                }}
+                                                className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                                                title="Download .ps1"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="relative group/code bg-gray-900 text-gray-100 p-3 rounded text-xs font-mono mb-4 overflow-hidden">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                copyToClipboard(snippet.content);
+                                            }}
+                                            className="absolute top-2 right-2 p-1 bg-gray-700 hover:bg-gray-600 rounded opacity-0 group-hover/code:opacity-100 transition-opacity"
+                                            title="Copy full code"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                            </svg>
+                                        </button>
+                                        <pre className="overflow-x-auto custom-scrollbar">{snippet.content.substring(0, 150)}{snippet.content.length > 150 ? '...' : ''}</pre>
+                                    </div>
+
+                                    <div className="flex justify-between items-center mt-auto">
+                                        <div className="flex gap-2 flex-wrap">
+                                            {snippet.tags.map(tag => (
+                                                <span
+                                                    key={tag}
+                                                    onClick={(e) => { e.stopPropagation(); toggleTagFilter(tag); }}
+                                                    className={`text-xs cursor-pointer hover:underline ${selectedTags.includes(tag) ? 'font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1 rounded' : 'text-blue-600 dark:text-blue-400'}`}
+                                                >
+                                                    #{tag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <button
+                                            onClick={() => handleDelete(snippet.id)}
+                                            className="text-red-500 hover:text-red-700 text-sm"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </details>
                 ))}
             </div>
-
-            {/* Empty State */}
-            {filteredSnippets.length === 0 && !loading && (
-                <div className="col-span-full text-center py-12 text-gray-500">
-                    No snippets found. Create one or analyze a folder.
-                </div>
-            )}
 
             {/* Detail Modal */}
             {selectedSnippet && (
@@ -420,21 +596,39 @@ export default function SnippetLibrary() {
                         <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-start">
                             <div className="flex-1">
                                 {isEditing ? (
-                                    <input
-                                        className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b border-blue-500 focus:outline-none w-full"
-                                        value={editData.name}
-                                        onChange={e => setEditData({ ...editData, name: e.target.value })}
-                                    />
+                                    <div className="flex items-center">
+                                        <input
+                                            className="text-2xl font-bold text-gray-900 dark:text-white bg-transparent border-b border-blue-500 focus:outline-none flex-grow"
+                                            value={editData.name}
+                                            onChange={e => setEditData({ ...editData, name: e.target.value })}
+                                            placeholder="FileName"
+                                        />
+                                        <span className="text-2xl font-bold text-gray-500 ml-1">.ps1</span>
+                                    </div>
                                 ) : (
-                                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{selectedSnippet.name}</h2>
+                                    <>
+                                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                                            {selectedSnippet.description || selectedSnippet.name}
+                                        </h2>
+                                        <p className="text-sm font-mono text-gray-500 dark:text-gray-400">
+                                            {selectedSnippet.name}
+                                        </p>
+                                    </>
                                 )}
 
                                 <div className="flex gap-2 text-sm text-gray-500 dark:text-gray-400 mt-2">
-                                    <span>{selectedSnippet.source || 'Manual'}</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs ${selectedSnippet.source === 'AI Generator'
+                                        ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300'
+                                        : selectedSnippet.source === 'Imported'
+                                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                        }`}>
+                                        {selectedSnippet.source === 'AI Generator' ? 'AI Generated' : selectedSnippet.source === 'Imported' ? 'Imported' : 'Created'}
+                                    </span>
                                     <span>•</span>
                                     <span>{selectedSnippet.category || 'General'}</span>
                                     <span>•</span>
-                                    <span>{new Date(selectedSnippet.created_at).toLocaleDateString()}</span>
+                                    <span>{formatDate(selectedSnippet.created_at)}</span>
                                 </div>
                             </div>
                             <div className="flex gap-2">
@@ -490,10 +684,9 @@ export default function SnippetLibrary() {
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tags</label>
-                                        <input
-                                            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        <TagInput
                                             value={editData.tags}
-                                            onChange={e => setEditData({ ...editData, tags: e.target.value })}
+                                            onChange={(val) => setEditData({ ...editData, tags: val })}
                                         />
                                     </div>
                                     <div>

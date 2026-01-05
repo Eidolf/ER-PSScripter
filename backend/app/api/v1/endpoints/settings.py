@@ -1,6 +1,8 @@
 from typing import Any
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
 from app.api import deps
 from app.models.setting import SystemSetting
 from app.schemas.setting import SettingResponse, SettingsUpdateRequest
@@ -20,7 +22,7 @@ DEFAULT_KEYS = {
 }
 SECRETS = ["OPENAI_API_KEY"]
 
-def _ensure_defaults(db: Session):
+def _ensure_defaults(db: Session) -> None:
     for key, default_val in DEFAULT_KEYS.items():
         exists = db.query(SystemSetting).filter(SystemSetting.key == key).first()
         if not exists:

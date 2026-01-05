@@ -53,3 +53,7 @@ export const getTags = async (): Promise<string[]> => {
     const response = await axios.get(`${API_URL}/snippets/tags`);
     return response.data;
 };
+
+export const deleteTag = async (tagName: string): Promise<void> => {
+    await axios.delete(`${API_URL}/tags/${encodeURIComponent(tagName)}`);
+};

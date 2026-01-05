@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 
+
 class LLMSettings(BaseSettings):
     # Provider: 'openai' or 'azure'
     LLM_PROVIDER: str = "openai"

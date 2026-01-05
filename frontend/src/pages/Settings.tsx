@@ -1,6 +1,77 @@
 import { useState, useEffect } from 'react';
 import { getSettings, updateSettings } from '../api/settings';
 import type { Setting } from '../api/settings';
+import { getTags, deleteTag } from '../api/snippets';
+
+function TagManagement() {
+    const [tags, setTags] = useState<string[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        loadTags();
+    }, []);
+
+    const loadTags = async () => {
+        setLoading(true);
+        try {
+            const data = await getTags();
+            setTags(data);
+        } catch (error) {
+            console.error("Failed to load tags", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async (tag: string) => {
+        if (!confirm(`Are you sure you want to delete the tag "${tag}" from ALL snippets?`)) return;
+        try {
+            await deleteTag(tag);
+            loadTags(); // Refresh list
+        } catch (error) {
+            console.error("Failed to delete tag", error);
+            alert("Failed to delete tag");
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+            <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                Manage Tags
+            </h2>
+            <div className="space-y-4">
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                    View and delete tags used across your snippets.
+                </p>
+                {loading ? (
+                    <div className="text-sm text-gray-500">Loading tags...</div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {tags.length === 0 ? (
+                            <span className="text-gray-400 text-sm italic">No tags found.</span>
+                        ) : (
+                            tags.map(tag => (
+                                <span key={tag} className="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                    #{tag}
+                                    <button
+                                        onClick={() => handleDelete(tag)}
+                                        className="hover:text-red-500 ml-1 font-bold"
+                                        title="Delete tag from all snippets"
+                                    >
+                                        &times;
+                                    </button>
+                                </span>
+                            ))
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 export default function Settings() {
     const [settings, setSettings] = useState<Setting[]>([]);
@@ -65,7 +136,7 @@ export default function Settings() {
         <div className="container mx-auto p-6 max-w-4xl">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">System Settings</h1>
 
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
                 <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-200">AI Provider Configuration</h2>
 
                 <div className="space-y-6">
@@ -214,6 +285,9 @@ export default function Settings() {
                     )}
                 </div>
             </div>
+
+            {/* Manage Tags Section */}
+            <TagManagement />
 
             {/* Custom Categories Section */}
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">

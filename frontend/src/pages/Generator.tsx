@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getSnippets, createSnippet } from '../api/snippets';
 import type { Snippet } from '../api/snippets';
 import { generateScript } from '../api/generator';
@@ -11,7 +11,7 @@ export default function Generator() {
     const [selectedSnippetIds, setSelectedSnippetIds] = useState<number[]>([]);
     const [prompt, setPrompt] = useState('');
     const [generatedCode, setGeneratedCode] = useState('');
-    const [tokenUsage, setTokenUsage] = useState<any>(null);
+    const [tokenUsage, setTokenUsage] = useState<{ prompt_tokens: number; completion_tokens: number; total_tokens: number } | null>(null);
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [categories, setCategories] = useState<string[]>(STANDARD_CATEGORIES);
@@ -20,6 +20,12 @@ export default function Generator() {
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [saveData, setSaveData] = useState({ name: '', description: '', tags: '', category: 'General' });
     const [saving, setSaving] = useState(false);
+
+    // Context Filter State
+    const [contextSearch, setContextSearch] = useState('');
+    const [contextTags, setContextTags] = useState<string[]>([]);
+    const [showContextTagModal, setShowContextTagModal] = useState(false);
+    const [tagSearchQuery, setTagSearchQuery] = useState('');
 
     useEffect(() => {
         loadData();
@@ -58,6 +64,50 @@ export default function Generator() {
                 : [...prev, id]
         );
     };
+
+    const toggleContextTagFilter = (tag: string) => {
+        setContextTags(prev =>
+            prev.includes(tag)
+                ? prev.filter(t => t !== tag)
+                : [...prev, tag]
+        );
+    };
+
+    // Filter Logic
+    const filteredSnippets = useMemo(() => {
+        return snippets.filter(snippet => {
+            const matchesSearch = (
+                snippet.name.toLowerCase().includes(contextSearch.toLowerCase()) ||
+                (snippet.description || '').toLowerCase().includes(contextSearch.toLowerCase()) ||
+                snippet.content.toLowerCase().includes(contextSearch.toLowerCase())
+            );
+            const matchesTags = contextTags.length === 0 || contextTags.every(tag => snippet.tags.includes(tag));
+            return matchesSearch && matchesTags;
+        });
+    }, [snippets, contextSearch, contextTags]);
+
+    // Group by Category
+    const groupedSnippets = useMemo(() => {
+        const groups: { [key: string]: Snippet[] } = {};
+        filteredSnippets.forEach(s => {
+            const cat = s.category || 'General';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(s);
+        });
+        return groups;
+    }, [filteredSnippets]);
+
+    // Display Categories
+    const displayCategories = useMemo(() => {
+        const presentCats = Object.keys(groupedSnippets);
+        const standard = STANDARD_CATEGORIES.filter(c => presentCats.includes(c));
+        const custom = presentCats.filter(c => !STANDARD_CATEGORIES.includes(c)).sort();
+        return [...standard, ...custom];
+    }, [groupedSnippets]);
+
+    // Get all unique tags for filter modal
+    const allTags = useMemo(() => Array.from(new Set(snippets.flatMap(s => s.tags))).sort(), [snippets]);
+    const filteredTags = allTags.filter(tag => tag.toLowerCase().includes(tagSearchQuery.toLowerCase()));
 
     const handleGenerate = async () => {
         if (!prompt) return;
@@ -136,34 +186,80 @@ export default function Generator() {
                         <h2 className="font-bold text-lg mb-4 text-gray-800 dark:text-gray-200">1. Select Context</h2>
                         <p className="text-sm text-gray-500 mb-4">Choose existing snippets to help the AI understand your environment.</p>
 
+                        <div className="flex flex-col gap-2 mb-4">
+                            <input
+                                placeholder="Search snippets..."
+                                className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                value={contextSearch}
+                                onChange={e => setContextSearch(e.target.value)}
+                            />
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={() => setShowContextTagModal(true)}
+                                    className={`px-3 py-1.5 rounded text-xs border flex items-center gap-1 transition-colors ${contextTags.length > 0
+                                        ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/40 dark:border-blue-800 dark:text-blue-300'
+                                        : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <span>Filter Tags</span>
+                                    {contextTags.length > 0 && (
+                                        <span className="bg-blue-600 text-white px-1.5 rounded-full text-[10px]">
+                                            {contextTags.length}
+                                        </span>
+                                    )}
+                                </button>
+                                {contextTags.length > 0 && (
+                                    <button
+                                        onClick={() => setContextTags([])}
+                                        className="text-xs text-red-500 hover:underline"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
                         <div className="flex-1 overflow-y-auto custom-scrollbar border rounded-lg dark:border-gray-700">
-                            {snippets.length === 0 ? (
+                            {displayCategories.length === 0 ? (
                                 <div className="p-4 text-center text-gray-400 text-sm">No snippets found.</div>
                             ) : (
                                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                                    {snippets.map(snippet => (
-                                        <div
-                                            key={snippet.id}
-                                            className={`p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition ${selectedSnippetIds.includes(snippet.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                                            onClick={() => toggleSnippetSelection(snippet.id)}
-                                        >
-                                            <div className="flex items-start gap-3">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedSnippetIds.includes(snippet.id)}
-                                                    onChange={() => { }}
-                                                    className="mt-1 h-4 w-4 text-blue-600 rounded"
-                                                />
-                                                <div className="min-w-0">
-                                                    <div className="font-medium text-sm text-gray-900 dark:text-white truncate">{snippet.name}</div>
-                                                    <div className="flex flex-wrap gap-1 mt-1">
-                                                        {snippet.tags.slice(0, 3).map(tag => (
-                                                            <span key={tag} className="text-[10px] bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">#{tag}</span>
-                                                        ))}
+                                    {displayCategories.map(cat => (
+                                        <details key={cat} open className="group">
+                                            <summary className="p-2 bg-gray-50 dark:bg-gray-700/50 cursor-pointer font-bold text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-2 select-none sticky top-0 z-10">
+                                                <span className="transform group-open:rotate-90 transition-transform text-[10px]">▶</span>
+                                                {cat}
+                                                <span className="text-[10px] bg-gray-200 dark:bg-gray-600 px-1.5 py-0.5 rounded-full ml-auto text-gray-600 dark:text-gray-400">
+                                                    {groupedSnippets[cat]?.length || 0}
+                                                </span>
+                                            </summary>
+                                            <div className="pl-2">
+                                                {groupedSnippets[cat]?.map(snippet => (
+                                                    <div
+                                                        key={snippet.id}
+                                                        className={`p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition border-b dark:border-gray-700 last:border-0 ${selectedSnippetIds.includes(snippet.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                                                        onClick={() => toggleSnippetSelection(snippet.id)}
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedSnippetIds.includes(snippet.id)}
+                                                                onChange={() => { }}
+                                                                className="mt-1 h-4 w-4 text-blue-600 rounded shrink-0"
+                                                            />
+                                                            <div className="min-w-0">
+                                                                <div className="font-medium text-sm text-gray-900 dark:text-white truncate" title={snippet.name}>{snippet.name}</div>
+                                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                                    {snippet.tags.slice(0, 3).map(tag => (
+                                                                        <span key={tag} className="text-[10px] bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">#{tag}</span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                ))}
                                             </div>
-                                        </div>
+                                        </details>
                                     ))}
                                 </div>
                             )}
@@ -319,6 +415,50 @@ export default function Generator() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+            {/* Context Tag Filter Modal */}
+            {showContextTagModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowContextTagModal(false)}>
+                    <div
+                        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm max-h-[60vh] flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-900 dark:text-white">Filter Tags</h3>
+                            <button onClick={() => setShowContextTagModal(false)} className="text-gray-500">✕</button>
+                        </div>
+                        <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                            <input
+                                placeholder="Search tags..."
+                                className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                value={tagSearchQuery}
+                                onChange={e => setTagSearchQuery(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="p-2 flex-1 overflow-y-auto custom-scrollbar">
+                            {filteredTags.map(tag => (
+                                <label key={tag} className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={contextTags.includes(tag)}
+                                        onChange={() => toggleContextTagFilter(tag)}
+                                        className="rounded border-gray-300 text-blue-600 mr-2"
+                                    />
+                                    <span className="text-sm dark:text-gray-300">{tag}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="p-3 border-t border-gray-100 dark:border-gray-700 flex justify-end">
+                            <button
+                                onClick={() => setShowContextTagModal(false)}
+                                className="bg-blue-600 text-white px-3 py-1 text-sm rounded"
+                            >
+                                Done
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
