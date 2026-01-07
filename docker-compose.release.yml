@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: er-psscripter-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-psscripter_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-psscripter_db}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ghcr.io/eidolf/er-psscripter-backend:latest
+    container_name: er-psscripter-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-secure_password}@db/${POSTGRES_DB:-psscripter_db}
+      # CORS: Add your production domains here
+      BACKEND_CORS_ORIGINS: '["http://localhost:13021", "http://localhost:5173", "http://127.0.0.1:13021"]'
+      # Initial Admin User (Created on first run)
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER:-admin@example.com}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:-admin123}
+    ports:
+      - "13021:8000"
+
+  frontend:
+    image: ghcr.io/eidolf/er-psscripter-frontend:latest
+    container_name: er-psscripter-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "13020:80"
+
+volumes:
+  postgres_data:
