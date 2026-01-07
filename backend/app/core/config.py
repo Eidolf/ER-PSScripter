@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     AI_API_KEY: str = ""
     AI_MODEL: str = "gpt-4-turbo"
 
+    # Security
+    SECRET_KEY: str = "changethis-to-a-secure-random-key-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",

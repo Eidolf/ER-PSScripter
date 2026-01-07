@@ -1,6 +1,6 @@
-import axios from 'axios';
+import client from './client';
 
-const API_URL = '/api/v1';
+
 
 export interface GenerateRequest {
     prompt: string;
@@ -18,7 +18,8 @@ export interface GenerateResponse {
 
 export const generateScript = async (request: GenerateRequest): Promise<GenerateResponse> => {
     // Increase timeout for AI generation as it might take longer than standard requests
-    const response = await axios.post<GenerateResponse>(`${API_URL}/generator/generate`, request, {
+    // Increase timeout for AI generation as it might take longer than standard requests
+    const response = await client.post<GenerateResponse>('/generator/generate', request, {
         timeout: 60000 // 60 seconds
     });
     return response.data;

@@ -1,3 +1,5 @@
+import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,7 +8,10 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.models.snippet import Snippet
 from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
+from app.services.embedding_service import embedding_service
 from app.services.script_analyzer import ScriptAnalyzerService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 analyzer = ScriptAnalyzerService()
@@ -55,7 +60,7 @@ def list_snippets(
     return snippets
 
 @router.post("/", response_model=SnippetResponse)
-def create_snippet(
+async def create_snippet(
     *,
     db: Session = Depends(deps.get_db),
     snippet_in: SnippetCreate
@@ -63,14 +68,35 @@ def create_snippet(
     """
     Create a new snippet.
     """
+    # Auto-detect PowerShell function
+    if re.search(r'^\s*function\s+[\w-]+\s*\{', snippet_in.content, re.IGNORECASE | re.MULTILINE):
+        if snippet_in.tags is None:
+            snippet_in.tags = []
+        if "#function" not in snippet_in.tags:
+            snippet_in.tags.append("#function")
+
     snippet = Snippet(
         name=snippet_in.name,
         description=snippet_in.description,
         content=snippet_in.content,
         tags=snippet_in.tags,
         category=snippet_in.category,
-        source=snippet_in.source
+        source=snippet_in.source,
+        project_id=snippet_in.project_id,
+        relative_path=snippet_in.relative_path
     )
+
+    try:
+        # Generate embedding for the new snippet
+        # Combine relevant fields for semantic search
+        text_to_embed = f"{snippet_in.name}\n{snippet_in.description or ''}\n{snippet_in.content}"
+        # Limit text length if necessary, but OpenAI handles up to 8k tokens.
+        embedding = await embedding_service.generate_embedding(text_to_embed, db)
+        snippet.embedding = embedding
+    except Exception as e:
+        logger.error(f"Failed to generate embedding for snippet {snippet_in.name}: {e}")
+        # We proceed without embedding rather than failing the creation
+
     db.add(snippet)
     db.commit()
     db.refresh(snippet)
@@ -91,7 +117,7 @@ def get_snippet(
     return snippet
 
 @router.put("/{id}", response_model=SnippetResponse)
-def update_snippet(
+async def update_snippet(
     *,
     db: Session = Depends(deps.get_db),
     id: int,
@@ -103,10 +129,45 @@ def update_snippet(
     snippet = db.query(Snippet).filter(Snippet.id == id).first()
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-    
+        
+    # Auto-detect function in content update
+    if snippet_in.content is not None and re.search(
+        r"^\s*function\s+[\w-]+\s*\{", snippet_in.content, re.IGNORECASE | re.MULTILINE
+    ):
+            # Update tags if provided, else append to existing
+            if snippet_in.tags is not None:
+                 if "#function" not in snippet_in.tags:
+                    snippet_in.tags.append("#function")
+            else:
+                 # If tags are not in the update payload, we modify the object before model_dump?
+                 # No, model_dump uses snippet_in. 
+                # We can just update the snippet object logic below or modify snippet_in.tags here
+                # but snippets_in.tags is optional.
+                # Let's manually ensure the tag is added to the snippet object later if strictly needed,
+                # but simpler is to force it into the update_data later?
+                 # Actually, let's just modify the DB object tags if needed.
+                 current_tags = list(snippet.tags) if snippet.tags else []
+                 if "#function" not in current_tags:
+                     current_tags.append("#function")
+                     # We must pass this to the update loop essentially.
+                     # But the loop iterates update_data.
+                     # Let's inject into snippet_in to be safe? 
+                     # snippet_in.tags = current_tags -> this works if snippet_in allows it.
+                     snippet_in.tags = current_tags
+
     update_data = snippet_in.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(snippet, field, value)
+
+    # Regenerate embedding if content/metadata changed
+    if any(k in update_data for k in ["name", "description", "content"]):
+        try:
+            text_to_embed = f"{snippet.name}\n{snippet.description or ''}\n{snippet.content}"
+            embedding = await embedding_service.generate_embedding(text_to_embed, db)
+            snippet.embedding = embedding
+        except Exception as e:
+            logger.error(f"Failed to update embedding for snippet {id}: {e}")
+
         
     db.add(snippet)
     db.commit()
@@ -127,4 +188,30 @@ def delete_snippet(
         raise HTTPException(status_code=404, detail="Snippet not found")
     db.delete(snippet)
     db.commit()
+    return snippet
+
+@router.post("/{id}/index", response_model=SnippetResponse)
+async def index_snippet(
+    *,
+    db: Session = Depends(deps.get_db),
+    id: int
+) -> Any:
+    """
+    Manually trigger embedding generation for a snippet.
+    """
+    snippet = db.query(Snippet).filter(Snippet.id == id).first()
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+        
+    try:
+        text_to_embed = f"{snippet.name}\n{snippet.description or ''}\n{snippet.content}"
+        embedding = await embedding_service.generate_embedding(text_to_embed, db)
+        snippet.embedding = embedding
+        db.add(snippet)
+        db.commit()
+        db.refresh(snippet)
+    except Exception as e:
+        logger.error(f"Failed to generate embedding for snippet {id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}") from e
+        
     return snippet

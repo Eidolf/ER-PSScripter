@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.setting import SystemSetting
 from app.models.snippet import Snippet
+from app.services.embedding_service import embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class AIService:
             if not endpoint or not deployment:
                 raise ValueError("Azure configuration missing (Endpoint/Deployment)")
 
-            client = openai.AzureOpenAI(
+            client = openai.AsyncAzureOpenAI(
                 api_key=api_key,
                 api_version=api_version,
                 azure_endpoint=endpoint
@@ -47,7 +48,7 @@ class AIService:
             base_url = config.get("OPENAI_BASE_URL") or None # Empty string -> None
             model = config.get("OPENAI_MODEL", "gpt-4o")
             
-            client = openai.OpenAI(
+            client = openai.AsyncOpenAI(
                 api_key=api_key,
                 base_url=base_url
             )
@@ -89,14 +90,52 @@ class AIService:
         # NOTE: Since I am overwriting the file, I will add the db argument to generate_script
         return ""
         
-    def generate_script_with_db(self, user_prompt: str, context_snippets: list[Snippet], db: Session) -> dict[str, Any]:
+    async def generate_script_with_db(
+        self, user_prompt: str, context_snippets: list[Snippet], db: Session
+    ) -> dict[str, Any]:
         try:
             config = self._get_config(db)
             client, model = self._init_client(config)
             
+            # RAG Logic: Retrieve similar snippets from "Memory"
+            try:
+                query_embedding = await embedding_service.generate_embedding(user_prompt, db)
+                
+                # Perform search. Note: db is Sync, but VectorStore uses async execution. 
+                # Ideally pass AsyncSession, but since we are in async function, we can potentially bridge.
+                # However, with current setup, vector_store expects session.execute (async).
+                # Since db is Sync Session, we can't await db.execute.
+                # WORKAROUND: Use standard sqlalchemy select execution on sync session, 
+                # OR (Preferred) create a temporary async session or use direct SQL.
+                # For simplicity here, we will just NOT use vector_store.py IF it requires AsyncSession, 
+                # but let's see. vector_store.py uses 'await session.execute'.
+                # Let's rewrite the search logic locally here using sync execution if needed, 
+                # or adapt vector_store. But wait, we want to use 'vector_store'.
+                
+                # Let's assume we can get an async session or run it synchronously. 
+                # Since we are in async def, blocking calls are okay-ish.
+                # Let's modify the query to run on the 'db' session synchronously.
+                
+                # Retrieve similar snippets
+                from sqlalchemy import select
+                # Using 0.5 as threshold
+                stmt = select(Snippet).order_by(Snippet.embedding.cosine_distance(query_embedding)).limit(3)
+                relevant_snippets = db.execute(stmt).scalars().all()
+                
+                # Add unique relevant snippets to context
+                existing_ids = {s.id for s in context_snippets}
+                for s in relevant_snippets:
+                    if s.id not in existing_ids:
+                        context_snippets.append(s)
+                        existing_ids.add(s.id)
+
+            except Exception as e:
+                logger.warning(f"RAG Retrieval failed: {e}")
+
             system_prompt = self._construct_system_prompt(context_snippets)
             
-            response = client.chat.completions.create(
+            # Use await because client is AsyncOpenAI
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},

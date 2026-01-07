@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getSnippets, createSnippet, updateSnippet, deleteSnippet, analyzeFolder } from '../api/snippets';
+import { getSnippets, createSnippet, updateSnippet, deleteSnippet, analyzeFolder, indexSnippet } from '../api/snippets';
 import type { Snippet, SnippetCreate } from '../api/snippets';
 import { getSettings } from '../api/settings';
 import { STANDARD_CATEGORIES, SYSTEM_SETTING_CUSTOM_CATEGORIES } from '../utils/categories';
@@ -140,6 +140,18 @@ export default function SnippetLibrary() {
             category: snippet.category || 'General'
         });
         setIsEditing(false);
+    };
+
+    const handleIndexSnippet = async (snippet: Snippet) => {
+        try {
+            await indexSnippet(snippet.id);
+            // Refresh explicitly to update UI state
+            await loadData();
+            alert("Snippet indexed successfully! 🧠");
+        } catch (error) {
+            console.error("Indexing failed", error);
+            alert("Failed to index snippet.");
+        }
     };
 
     const copyToClipboard = async (text: string) => {
@@ -403,6 +415,17 @@ export default function SnippetLibrary() {
                         )}
                     </button>
 
+                    <button
+                        onClick={() => toggleTagFilter('#function')}
+                        className={`px-4 py-2 rounded-lg border flex items-center gap-2 transition ${selectedTags.includes('#function')
+                            ? 'bg-purple-100 border-purple-200 text-purple-700 dark:bg-purple-900/40 dark:border-purple-800 dark:text-purple-300'
+                            : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                            }`}
+                    >
+                        <span className="font-serif italic font-bold text-lg leading-none">ƒ</span>
+                        Functions
+                    </button>
+
                     {selectedTags.length > 0 && (
                         <button
                             onClick={() => setSelectedTags([])}
@@ -523,6 +546,34 @@ export default function SnippetLibrary() {
                                                 }`}>
                                                 {snippet.source === 'AI Generator' ? 'AI Generated' : snippet.source === 'Imported' ? 'Imported' : 'Created'}
                                             </span>
+                                            {snippet.tags.includes('#function') && (
+                                                <span className="text-xs px-2 py-1 rounded whitespace-nowrap bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 flex items-center gap-1" title="PowerShell Function">
+                                                    <span className="font-serif italic font-bold">ƒ</span>
+                                                    Function
+                                                </span>
+                                            )}
+                                            {snippet.has_embedding ? (
+                                                <span className="text-xs px-2 py-1 rounded whitespace-nowrap bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-300 flex items-center gap-1" title="Vectorized for AI Context">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                    </svg>
+                                                    Learned
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleIndexSnippet(snippet);
+                                                    }}
+                                                    className="text-xs px-2 py-1 rounded whitespace-nowrap bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center gap-1 transition"
+                                                    title="Click to learn/index this snippet"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                    </svg>
+                                                    Learn
+                                                </button>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-xs text-gray-400">
@@ -625,6 +676,21 @@ export default function SnippetLibrary() {
                                         }`}>
                                         {selectedSnippet.source === 'AI Generator' ? 'AI Generated' : selectedSnippet.source === 'Imported' ? 'Imported' : 'Created'}
                                     </span>
+                                    {selectedSnippet.has_embedding ? (
+                                        <span className="px-2 py-0.5 rounded text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-300 flex items-center gap-1">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                            </svg>
+                                            Learned
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={() => handleIndexSnippet(selectedSnippet)}
+                                            className="px-2 py-0.5 rounded text-xs bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center gap-1 transition"
+                                        >
+                                            Learn Now
+                                        </button>
+                                    )}
                                     <span>•</span>
                                     <span>{selectedSnippet.category || 'General'}</span>
                                     <span>•</span>

@@ -12,7 +12,7 @@ router = APIRouter()
 ai_service = AIService()
 
 @router.post("/generate", response_model=GenerateResponse)
-def generate_script(
+async def generate_script(
     request: GenerateRequest,
     db: Session = Depends(deps.get_db)
 ) -> Any:
@@ -26,7 +26,7 @@ def generate_script(
         # if len(context_snippets) != len(request.snippet_ids):
         #     logger.warning("Some requested snippets were not found.")
 
-    result = ai_service.generate_script_with_db(request.prompt, context_snippets, db)
+    result = await ai_service.generate_script_with_db(request.prompt, context_snippets, db)
     
     # Result is now a dict { "content": ..., "usage": ... }
     # Or string if error (though service should ideally return consistent type, let's handle both)

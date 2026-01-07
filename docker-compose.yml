@@ -9,7 +9,7 @@ services:
       - "13021:8000"
     environment:
       - PROJECT_NAME=ER-PSScripter
-      - DATABASE_URL=sqlite:////app/data/app.db
+      - DATABASE_URL=postgresql://user:password@db:5432/erpsscripter
       - BACKEND_CORS_ORIGINS=["http://localhost:13020","http://localhost:5173"]
     volumes:
       - ./backend/data:/app/data
@@ -33,9 +33,11 @@ services:
       - er-network
 
   db:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: er-psscripter-db
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:

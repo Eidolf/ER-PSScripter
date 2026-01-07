@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSettings, updateSettings } from '../api/settings';
+import { getSettings, updateSettings, testConnection } from '../api/settings';
 import type { Setting } from '../api/settings';
 import { getTags, deleteTag } from '../api/snippets';
 
@@ -77,6 +77,7 @@ export default function Settings() {
     const [settings, setSettings] = useState<Setting[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [testing, setTesting] = useState(false);
     const [showAzureHelp, setShowAzureHelp] = useState(false);
 
     // Local state for form values
@@ -127,10 +128,44 @@ export default function Settings() {
         }
     };
 
+    const handleTestConnection = async () => {
+        setTesting(true);
+        try {
+            const config = {
+                provider: formValues["LLM_PROVIDER"] || "openai",
+                api_key: formValues["OPENAI_API_KEY"] || "",
+                base_url: formValues["OPENAI_BASE_URL"],
+                azure_endpoint: formValues["AZURE_OPENAI_ENDPOINT"],
+                azure_deployment: formValues["AZURE_OPENAI_DEPLOYMENT_NAME"],
+                azure_api_version: formValues["AZURE_OPENAI_API_VERSION"]
+            };
+
+            const result = await testConnection(config);
+            if (result.success) {
+                alert("Connection successful! ✅");
+            } else {
+                alert(`Connection failed: ${result.error} ❌`);
+            }
+        } catch (error) {
+            console.error("Test failed", error);
+            alert("Test failed due to client error.");
+        } finally {
+            setTesting(false);
+        }
+    };
+
     if (loading) return <div>Loading settings...</div>;
 
     // Filter settings by category for UI (hardcoded grouping)
     const provider = formValues["LLM_PROVIDER"] || "openai";
+    const embeddingProvider = formValues["EMBEDDING_PROVIDER"] || ""; // Empty means same as LLM
+
+    // Determine effective embedding provider for UI logic
+    const effectiveEmbeddingProvider = embeddingProvider || provider;
+
+    // Show API Key if EITHER provider needs it (not local/local_builtin)
+    const needsApiKey = (provider !== "local" && provider !== "local_builtin") ||
+        (effectiveEmbeddingProvider !== "local" && effectiveEmbeddingProvider !== "local_builtin");
 
     return (
         <div className="container mx-auto p-6 max-w-4xl">
@@ -153,26 +188,68 @@ export default function Settings() {
                             <option value="openai">OpenAI (Official)</option>
                             <option value="azure">Azure OpenAI</option>
                             <option value="local">Local (Ollama / Custom)</option>
+                            <option value="local_builtin">Local (Built-in / Offline)</option>
                         </select>
                     </div>
 
-                    {/* Common API Key */}
+                    {/* Embedding Provider Select */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            API Key
+                            Embedding Provider (Learning)
                         </label>
-                        <input
-                            type="password"
-                            value={formValues["OPENAI_API_KEY"] || ''}
-                            onChange={e => handleInputChange("OPENAI_API_KEY", e.target.value)}
-                            placeholder={settings.find(s => s.key === "OPENAI_API_KEY")?.value?.includes("*") ? "Saved (Enter new to overwrite)" : "sk-..."}
+                        <select
+                            value={embeddingProvider}
+                            onChange={e => handleInputChange("EMBEDDING_PROVIDER", e.target.value)}
                             className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Provider API Key. For Azure, use your Azure API Key.</p>
+                        >
+                            <option value="">Same as Generation (Default)</option>
+                            <option value="local_builtin">Local (Built-in / Offline)</option>
+                            <option value="openai">OpenAI (Official)</option>
+                            <option value="azure">Azure OpenAI</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Select a different provider for the "Learn" feature. Recommended: <strong>Local (Built-in)</strong> for free, private indexing.
+                        </p>
                     </div>
 
-                    {/* Conditional Fields based on Provider */}
-                    {provider === "azure" && (
+                    {/* Common API Key - Show if ANY provider needs it */}
+                    {needsApiKey && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                API Key
+                            </label>
+                            <input
+                                type="password"
+                                value={formValues["OPENAI_API_KEY"] || ''}
+                                onChange={e => handleInputChange("OPENAI_API_KEY", e.target.value)}
+                                placeholder={settings.find(s => s.key === "OPENAI_API_KEY")?.value?.includes("*") ? "Saved (Enter new to overwrite)" : "sk-..."}
+                                className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Provider API Key. For Azure, use your Azure API Key.</p>
+                        </div>
+                    )}
+
+                    {/* Local Built-in Guide */}
+                    {effectiveEmbeddingProvider === "local_builtin" && (
+                        <div className="bg-green-50 dark:bg-green-900/30 p-4 rounded-lg text-sm text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800">
+                            <div className="flex items-center gap-2 font-semibold mb-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                Local Learning Active
+                            </div>
+                            <p>
+                                <strong>Great choice!</strong> Your snippets will be indexed offline on your server using the local model.
+                            </p>
+                            {provider !== "local_builtin" && (
+                                <p className="mt-1">
+                                    Your <strong>Generation</strong> (Chat) will still use <strong>{provider === "azure" ? "Azure OpenAI" : "OpenAI"}</strong> for the best quality scripts.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                    {/* Azure Visibility Logic: Show if EITHER is Azure */}
+                    {(provider === "azure" || effectiveEmbeddingProvider === "azure") && (
                         <div className="grid grid-cols-1 gap-4 border-t pt-4 dark:border-gray-700">
                             <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg text-sm text-blue-800 dark:text-blue-200 mb-4 cursor-pointer" onClick={() => setShowAzureHelp(!showAzureHelp)}>
                                 <div className="flex items-center gap-2 font-semibold">
@@ -229,17 +306,34 @@ export default function Settings() {
                                         className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Deployment Name
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formValues["AZURE_OPENAI_DEPLOYMENT_NAME"] || ''}
-                                        onChange={e => handleInputChange("AZURE_OPENAI_DEPLOYMENT_NAME", e.target.value)}
-                                        className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                    />
-                                </div>
+                                {provider === "azure" && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                            Deployment Name (Chat)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formValues["AZURE_OPENAI_DEPLOYMENT_NAME"] || ''}
+                                            onChange={e => handleInputChange("AZURE_OPENAI_DEPLOYMENT_NAME", e.target.value)}
+                                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        />
+                                    </div>
+                                )}
+                                {effectiveEmbeddingProvider === "azure" && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                            Embedding Deployment
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formValues["AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"] || ''}
+                                            onChange={e => handleInputChange("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", e.target.value)}
+                                            placeholder="text-embedding-3-small"
+                                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Separate deployment for Embeddings needed.</p>
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         API Version
@@ -347,7 +441,14 @@ export default function Settings() {
             </div>
 
             {/* Save Button */}
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-3">
+                <button
+                    onClick={handleTestConnection}
+                    disabled={testing}
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white px-6 py-2 rounded-lg font-medium transition disabled:opacity-50"
+                >
+                    {testing ? "Testing..." : "Test Connection"}
+                </button>
                 <button
                     onClick={handleSave}
                     disabled={saving}
