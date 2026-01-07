@@ -28,7 +28,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install poetry
-          cd backend && poetry install
+          cd backend && poetry install -E dev
           
       - name: Lint Backend (Ruff)
         run: cd backend && poetry run ruff check .
@@ -58,7 +58,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install poetry
-          cd backend && poetry install
+          cd backend && poetry install -E dev
 
       - name: Run Unit Tests
         run: cd backend && poetry run pytest
