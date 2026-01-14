@@ -1,79 +1,85 @@
 name: CI Orchestrator
 
 on:
-  workflow_dispatch:
   push:
     branches: [ "main" ]
     paths-ignore:
       - 'docs/**'
-      - 'README.md'
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - '.github/labeler.yml'
   pull_request:
     branches: [ "main" ]
     paths-ignore:
       - 'docs/**'
-      - 'README.md'
-  workflow_call:
-    inputs:
-      mode:
-        description: 'Execution mode (Economy/Full)'
-        required: false
-        default: 'Economy'
-        type: string
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - '.github/labeler.yml'
+  workflow_dispatch:
 
 jobs:
-  lint:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # --- Backend Checks ---
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
-      - name: Install Dependencies
+          cache: 'pip'
+
+      - name: Install Backend Deps
         run: |
           pip install poetry
-          cd backend && poetry install -E dev
-          
-      - name: Lint Backend (Ruff)
+          cd backend && poetry install --no-root
+
+      - name: Lint Backend
         run: cd backend && poetry run ruff check .
 
+      - name: Test Backend
+        run: cd backend && poetry run pytest
+
+      # --- Frontend Checks ---
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
-      - name: Lint Frontend (ESLint)
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Deps
         run: |
           cd frontend
           npm ci
-          npm run lint || echo "Lint warnings"
+          npm audit fix --audit-level=high || true
 
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Lint Frontend
+        run: cd frontend && npm run lint
+
+      # --- Docker Build Validation ---
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Backend Build
+        uses: docker/build-push-action@v5
         with:
-          python-version: '3.11'
-          
-      - name: Install Dependencies
-        run: |
-          pip install poetry
-          cd backend && poetry install -E dev
+          context: ./backend
+          push: false
+          tags: test-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Run Unit Tests
-        run: cd backend && poetry run pytest
-
-  e2e-test:
-    needs: test
-    if: inputs.mode == 'Full' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run E2E (Playwright)
-        run: echo "Running expensive E2E tests..."
+      - name: Validate Frontend Build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: test-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

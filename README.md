@@ -58,15 +58,63 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
 
 ## Deployment
 
-### Portainer Stack
-This project is designed to be deployed easily using a Portainer Stack.
+### Quick Deployment (Portainer / Docker Compose)
 
-1.  Copy the content of [`docker-compose.release.yml`](./docker-compose.release.yml).
-2.  Paste it into a new Stack in Portainer.
-3.  **IMPORTANT:** Update the following Environment Variables in the Stack configuration or directly in the YAML before deploying:
-    *   `ACCESS_PIN`: Default is `0000`. **Change this immediately.**
-    *   `SECRET_KEY`: Default is insecure. **Change this to a strong random string.**
-    *   `POSTGRES_PASSWORD`: Ensure this matches your database requirements.
+1.  **Create Stack**: Create a new stack in Portainer (or a `docker-compose.yml` file) with the following content:
+
+    ```yaml
+    version: '3.8'
+
+    services:
+      backend:
+        image: ghcr.io/eidolf/er-psscripter-backend:latest
+        restart: unless-stopped
+        ports:
+          - "13021:8000"
+        environment:
+          - PROJECT_NAME=ER-PSScripter
+          - SECRET_KEY=changethiskeyinproduction # CHANGE THIS
+          - BACKEND_CORS_ORIGINS=["http://localhost:13020", "http://localhost:5173", "http://localhost:13021"]
+          
+          # Database
+          - DATABASE_URL=postgresql://app_user:secure_password@db/psscripter_db
+        depends_on:
+          - db
+        volumes:
+          - ./data/backend:/app/data
+
+      frontend:
+        image: ghcr.io/eidolf/er-psscripter-frontend:latest
+        restart: unless-stopped
+        ports:
+          - "13020:80"
+        depends_on:
+          - backend
+
+      db:
+        image: pgvector/pgvector:pg15
+        restart: unless-stopped
+        environment:
+          - POSTGRES_USER=app_user
+          - POSTGRES_PASSWORD=secure_password # CHANGE THIS
+          - POSTGRES_DB=psscripter_db
+        volumes:
+          - ./data/postgres:/var/lib/postgresql/data
+    ```
+
+2.  **Access & Setup**:
+    *   Open the frontend (e.g., `http://your-server:13020`).
+    *   You will be prompted to **Create an Admin Account** on the first visit.
+    *   Enter your desired email and password to initialize the system.
+
+3.  **Environment Variables**:
+    *   **SECURITY**: Change `SECRET_KEY` and `POSTGRES_PASSWORD` for production use.
+
+### Docker Images
+Images are automatically built and pushed to GitHub Container Registry (GHCR) on every release:
+*   Backend: `ghcr.io/eidolf/er-psscripter-backend:latest`
+*   Frontend: `ghcr.io/eidolf/er-psscripter-frontend:latest`
+
 
 ### Docker Images
 Images are automatically built and pushed to GitHub Container Registry (GHCR) on every release:

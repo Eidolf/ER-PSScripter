@@ -1,53 +1,37 @@
 version: '3.8'
 
 services:
-  db:
-    image: pgvector/pgvector:pg15
-    container_name: er-psscripter-db
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-app_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password}
-      POSTGRES_DB: ${POSTGRES_DB:-psscripter_db}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-psscripter_db}" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     image: ghcr.io/eidolf/er-psscripter-backend:latest
-    container_name: er-psscripter-backend
-    restart: always
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:-secure_password}@db/${POSTGRES_DB:-psscripter_db}
-      # CORS: Add your production domains here
-      BACKEND_CORS_ORIGINS: '["http://localhost:13021", "http://localhost:5173", "http://127.0.0.1:13021"]'
-      # Initial Admin User (Created on first run)
-      FIRST_SUPERUSER: ${FIRST_SUPERUSER:-admin@example.com}
-      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:-admin123}
-      # SECURITY WARNING: Change these in production!
-      ACCESS_PIN: ${ACCESS_PIN:-0000} # Change this PIN!
-      SECRET_KEY: ${SECRET_KEY:-changethiskeyinproduction} # Change this Secret Key!
-    volumes:
-      - backend_data:/app/data
+    restart: unless-stopped
     ports:
       - "13021:8000"
+    environment:
+      - PROJECT_NAME=ER-PSScripter
+      - SECRET_KEY=changethiskeyinproduction # CHANGE THIS
+      - BACKEND_CORS_ORIGINS=["http://localhost:13020", "http://localhost:5173", "http://localhost:13021"]
+
+      # Database
+      - DATABASE_URL=postgresql://app_user:secure_password@db/psscripter_db
+    depends_on:
+      - db
+    volumes:
+      - ./data/backend:/app/data
 
   frontend:
     image: ghcr.io/eidolf/er-psscripter-frontend:latest
-    container_name: er-psscripter-frontend
-    restart: always
-    depends_on:
-      - backend
+    restart: unless-stopped
     ports:
       - "13020:80"
+    depends_on:
+      - backend
 
-volumes:
-  postgres_data:
-  backend_data:
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=app_user
+      - POSTGRES_PASSWORD=secure_password # CHANGE THIS
+      - POSTGRES_DB=psscripter_db
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
