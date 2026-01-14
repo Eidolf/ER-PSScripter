@@ -16,7 +16,8 @@ def read_version():
 def write_version(version):
     with open(VERSION_FILE, "w") as f:
         f.write(version)
-    print(f"Updated VERSION to {version}")
+    # print(f"Updated VERSION to {version}") # Quietly update
+    pass
 
 def get_date_parts():
     now = datetime.now()
