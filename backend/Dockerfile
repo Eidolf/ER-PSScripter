@@ -17,8 +17,15 @@ WORKDIR /app
 COPY --from=requirements-stage /tmp/requirements.txt /app/requirements.txt
 
 # Install CPU-only PyTorch first to avoid downloading huge GPU wheels
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
+# Install CPU-only PyTorch first to avoid downloading huge GPU wheels
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Remove heavy GPU-related packages from requirements.txt before installing
+# We also remove 'torch' from requirements.txt so pip doesn't try to "upgrade" it to the GPU version
+RUN grep -vE "nvidia|triton|torch|cudnn" /app/requirements.txt > /app/requirements.cleaned.txt
+
+# Install remaining requirements, forcing CPU index just in case
+RUN pip install --no-cache-dir --upgrade -r /app/requirements.cleaned.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 COPY ./app /app/app
 COPY ./alembic.ini /app/alembic.ini
