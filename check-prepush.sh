@@ -8,6 +8,8 @@ echo "🐍 Checking Backend (Ruff & Mypy)..."
 cd backend
 poetry run ruff check .
 poetry run mypy .
+echo "🧪 Running Backend Tests..."
+poetry run pytest
 cd ..
 
 # 2. Frontend Linting
