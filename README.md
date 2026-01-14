@@ -56,9 +56,22 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
 - [Contributing](./docs/contributing.md)
 - [API Docs](http://localhost:13021/docs)
 
-## Release & Deployment
-- **Docker Images**: Available on `ghcr.io/eidolf/er-psscripter-backend` (and frontend).
-- **Portainer**: Use `docker-compose.release.yml` for production deployment.
+## Deployment
+
+### Portainer Stack
+This project is designed to be deployed easily using a Portainer Stack.
+
+1.  Copy the content of [`docker-compose.release.yml`](./docker-compose.release.yml).
+2.  Paste it into a new Stack in Portainer.
+3.  **IMPORTANT:** Update the following Environment Variables in the Stack configuration or directly in the YAML before deploying:
+    *   `ACCESS_PIN`: Default is `0000`. **Change this immediately.**
+    *   `SECRET_KEY`: Default is insecure. **Change this to a strong random string.**
+    *   `POSTGRES_PASSWORD`: Ensure this matches your database requirements.
+
+### Docker Images
+Images are automatically built and pushed to GitHub Container Registry (GHCR) on every release:
+*   Backend: `ghcr.io/eidolf/er-psscripter-backend:latest`
+*   Frontend: `ghcr.io/eidolf/er-psscripter-frontend:latest`
 
 ## License
-MIT
+AGPL-3.0-only

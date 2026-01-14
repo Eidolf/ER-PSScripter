@@ -4,6 +4,7 @@ package-mode = false
 [project]
 name = "er-psscripter-backend"
 version = "0.1.0"
+license = "AGPL-3.0-only"
 description = "AI-driven PowerShell script generator backend"
 requires-python = ">=3.11"
 dependencies = [

@@ -31,6 +31,11 @@ services:
       # Initial Admin User (Created on first run)
       FIRST_SUPERUSER: ${FIRST_SUPERUSER:-admin@example.com}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:-admin123}
+      # SECURITY WARNING: Change these in production!
+      ACCESS_PIN: ${ACCESS_PIN:-0000} # Change this PIN!
+      SECRET_KEY: ${SECRET_KEY:-changethiskeyinproduction} # Change this Secret Key!
+    volumes:
+      - backend_data:/app/data
     ports:
       - "13021:8000"
 
@@ -45,3 +50,4 @@ services:
 
 volumes:
   postgres_data:
+  backend_data:
