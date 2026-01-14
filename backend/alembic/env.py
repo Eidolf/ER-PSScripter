@@ -26,7 +26,10 @@ from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 
 target_metadata = Base.metadata
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+assert settings.DATABASE_URL, "DATABASE_URL must be set"
+# Escape % to %% to prevent ConfigParser interpolation errors (e.g. if password has % char)
+db_url = settings.DATABASE_URL.replace("%", "%%")
+config.set_main_option("sqlalchemy.url", db_url)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

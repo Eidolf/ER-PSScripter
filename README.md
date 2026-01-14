@@ -67,7 +67,7 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
 
     services:
       backend:
-        image: ghcr.io/eidolf/er-psscripter-backend:latest
+        image: ghcr.io/eidolf/er-psscripter/backend:latest
         restart: unless-stopped
         ports:
           - "13021:8000"
@@ -77,14 +77,17 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
           - BACKEND_CORS_ORIGINS=["http://localhost:13020", "http://localhost:5173", "http://localhost:13021"]
           
           # Database
-          - DATABASE_URL=postgresql://app_user:secure_password@db/psscripter_db
+          - POSTGRES_SERVER=db
+          - POSTGRES_USER=app_user
+          - POSTGRES_PASSWORD=secure_password # CHANGE THIS
+          - POSTGRES_DB=psscripter_db
         depends_on:
           - db
         volumes:
           - ./data/backend:/app/data
 
       frontend:
-        image: ghcr.io/eidolf/er-psscripter-frontend:latest
+        image: ghcr.io/eidolf/er-psscripter/frontend:latest
         restart: unless-stopped
         ports:
           - "13020:80"
@@ -112,14 +115,8 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
 
 ### Docker Images
 Images are automatically built and pushed to GitHub Container Registry (GHCR) on every release:
-*   Backend: `ghcr.io/eidolf/er-psscripter-backend:latest`
-*   Frontend: `ghcr.io/eidolf/er-psscripter-frontend:latest`
-
-
-### Docker Images
-Images are automatically built and pushed to GitHub Container Registry (GHCR) on every release:
-*   Backend: `ghcr.io/eidolf/er-psscripter-backend:latest`
-*   Frontend: `ghcr.io/eidolf/er-psscripter-frontend:latest`
+*   Backend: `ghcr.io/eidolf/er-psscripter/backend:latest`
+*   Frontend: `ghcr.io/eidolf/er-psscripter/frontend:latest`
 
 ## License
 AGPL-3.0-only

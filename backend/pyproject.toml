@@ -1,6 +1,14 @@
 [tool.poetry]
 package-mode = false
 
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+
 [project]
 name = "er-psscripter-backend"
 version = "0.1.0"

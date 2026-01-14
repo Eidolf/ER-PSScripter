@@ -12,18 +12,31 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
     const [needsSetup, setNeedsSetup] = useState(false);
     const [checkingStatus, setCheckingStatus] = useState(true);
+    const [connectionError, setConnectionError] = useState(false);
 
     // Check system status on mount
-    useEffect(() => {
+    const checkStatus = () => {
+        setCheckingStatus(true);
+        setConnectionError(false);
         fetch('/api/v1/login/status')
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Status check failed");
+                return res.json();
+            })
             .then(data => {
                 if (data.needs_setup) {
                     setNeedsSetup(true);
                 }
             })
-            .catch(err => console.error("Failed to check status", err))
+            .catch(err => {
+                console.error("Failed to check status", err);
+                setConnectionError(true);
+            })
             .finally(() => setCheckingStatus(false));
+    };
+
+    useEffect(() => {
+        checkStatus();
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -47,6 +60,11 @@ export default function Login() {
             });
 
             if (!response.ok) {
+                // Handle 502/HTML responses gracefully
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") === -1) {
+                    throw new Error("Server returned an invalid response. The backend might be starting up or down.");
+                }
                 const data = await response.json();
                 throw new Error(data.detail || (needsSetup ? 'Setup failed' : 'Login failed'));
             }
@@ -68,7 +86,27 @@ export default function Login() {
     if (checkingStatus) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                <div className="text-gray-500">Loading...</div>
+                <div className="text-gray-500">Loading system status...</div>
+            </div>
+        );
+    }
+
+    if (connectionError) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+                <div className="max-w-md w-full text-center space-y-4">
+                    <img className="mx-auto h-16 w-auto opacity-50" src="/logo.png" alt="Logo" />
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Service Unavailable</h2>
+                    <p className="text-gray-500 dark:text-gray-400">
+                        Could not connect to the backend server. It might be starting up or undergoing maintenance.
+                    </p>
+                    <button
+                        onClick={checkStatus}
+                        className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
+                    >
+                        Retry Connection
+                    </button>
+                </div>
             </div>
         );
     }

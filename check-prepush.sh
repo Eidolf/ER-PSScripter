@@ -6,10 +6,14 @@ echo "🚀 Starting Pre-Flight Checks..."
 # 1. Backend Linting
 echo "🐍 Checking Backend (Ruff & Mypy)..."
 cd backend
-poetry run ruff check .
-poetry run mypy .
+# Retrieve venv path to bypass 'poetry run' sync (which would reinstall GPU usage)
+VENV_PATH=$(poetry env info --path)
+VENV_BIN="$VENV_PATH/bin"
+echo "🐍 Checking Backend (Ruff & Mypy) using $VENV_PATH..."
+$VENV_BIN/ruff check .
+$VENV_BIN/mypy .
 echo "🧪 Running Backend Tests..."
-poetry run pytest
+$VENV_BIN/pytest
 cd ..
 
 # 2. Frontend Linting

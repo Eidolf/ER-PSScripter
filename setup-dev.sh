@@ -11,6 +11,9 @@ else
     echo "✅ Poetry found."
 fi
 
+# Ensure Poetry is in PATH for this session
+export PATH="$HOME/.local/bin:$PATH"
+
 # 2. Check for act
 if ! command -v act &> /dev/null; then
     echo "⚠️ 'act' is not installed. Please install it (e.g. brew install act / choco install act-cli)"
@@ -22,6 +25,9 @@ fi
 echo "📦 Installing Backend Dependencies..."
 cd backend
 poetry install --extras dev
+# Overwrite with CPU-only torch to save space (since Poetry defaults to PyPI)
+echo "⚡ Optimizing PyTorch (CPU-only)..."
+poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 cd ..
 
 # 4. Install Frontend Deps
