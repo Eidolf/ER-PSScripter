@@ -37,7 +37,7 @@ jobs:
       - name: Install Backend Deps
         run: |
           pip install poetry
-          cd backend && poetry install --no-root
+          cd backend && poetry install --no-root -E dev
 
       - name: Lint Backend
         run: cd backend && poetry run ruff check .
