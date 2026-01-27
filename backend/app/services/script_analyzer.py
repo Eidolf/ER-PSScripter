@@ -4,7 +4,14 @@ import re
 from app.schemas.snippet import SnippetCreate
 
 
+import hashlib
+
+# ...
+
 class ScriptAnalyzerService:
+    def _compute_hash(self, content: str) -> str:
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
     def analyze_folder(self, folder_path: str) -> list[SnippetCreate]:
         snippets: list[SnippetCreate] = []
         if not os.path.exists(folder_path):
@@ -12,18 +19,21 @@ class ScriptAnalyzerService:
 
         for root, _, files in os.walk(folder_path):
             for file in files:
-                if file.endswith(".ps1"):
+                if file.lower().endswith(".ps1"):
                     full_path = os.path.join(root, file)
                     try:
                         with open(full_path, encoding="utf-8") as f:
                             content = f.read()
-                            extracted = self._extract_functions(content, file)
+                            extracted = self.analyze_content(content, file)
                             snippets.extend(extracted)
                     except Exception as e:
                         print(f"Error reading {file}: {e}")
         return snippets
 
-    def _extract_functions(self, content: str, source: str) -> list[SnippetCreate]:
+    def analyze_content(self, content: str, filename: str, split_functions: bool = False) -> list[SnippetCreate]:
+        return self._extract_functions(content, filename, split_functions)
+
+    def _extract_functions(self, content: str, source: str, split_functions: bool = False) -> list[SnippetCreate]:
         found_snippets = []
         
         # Regex to find function definitions start: function Name {
@@ -32,7 +42,8 @@ class ScriptAnalyzerService:
         
         matches = list(function_start_pattern.finditer(content))
         
-        if not matches:
+        # IF splitting is disabled OR no functions found, treat as whole file
+        if not split_functions or not matches:
             # No functions found, treat entire file as script
             help_info = self._extract_help_info(content, 0)
             description_val = help_info.get("description", "")
@@ -52,7 +63,8 @@ class ScriptAnalyzerService:
                 content=content.strip(),
                 source=source,
                 description=description.strip() or None,
-                tags=sorted(list(set([str(t) for t in tags] + ["script", "auto-discovered"])))
+                tags=sorted(list(set([str(t) for t in tags] + ["script", "auto-discovered"]))),
+                content_hash=self._compute_hash(content.strip())
             ))
             return found_snippets
 
@@ -89,10 +101,12 @@ class ScriptAnalyzerService:
                     content=full_function_text,
                     source=source,
                     description=description.strip() or None,
-                    tags=sorted(list(set([str(t) for t in tags] + ["function", "auto-discovered"])))
+                    tags=sorted(list(set([str(t) for t in tags] + ["function", "auto-discovered"]))),
+                    content_hash=self._compute_hash(full_function_text)
                 ))
 
         return found_snippets
+
 
     def _find_matching_brace(self, content: str, start_index: int) -> int:
         """

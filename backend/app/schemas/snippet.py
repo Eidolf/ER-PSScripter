@@ -12,6 +12,7 @@ class SnippetBase(BaseModel):
     source: str | None = None
     project_id: int | None = None
     relative_path: str | None = None
+    content_hash: str | None = None
 
 class SnippetCreate(SnippetBase):
     pass

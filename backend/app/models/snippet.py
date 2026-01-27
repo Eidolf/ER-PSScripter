@@ -25,6 +25,8 @@ class Snippet(Base):
     project_id = Column(Integer, ForeignKey("project.id"), nullable=True)
     relative_path = Column(String, nullable=True)  # Path relative to project root, e.g., "utils/helper.ps1"
     
+    content_hash = Column(String, index=True, nullable=True)  # SHA256 of content for duplicate detection
+    
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

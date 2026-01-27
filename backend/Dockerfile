@@ -16,6 +16,21 @@ WORKDIR /app
 
 COPY --from=requirements-stage /tmp/requirements.txt /app/requirements.txt
 
+# Install dependencies for PowerShell and other tools
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    libicu-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PowerShell via binary
+RUN wget https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-linux-x64.tar.gz \
+    && mkdir -p /opt/microsoft/powershell/7 \
+    && tar zxf powershell-7.4.1-linux-x64.tar.gz -C /opt/microsoft/powershell/7 \
+    && chmod +x /opt/microsoft/powershell/7/pwsh \
+    && ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh \
+    && rm powershell-7.4.1-linux-x64.tar.gz
+
 # Install CPU-only PyTorch first to avoid downloading huge GPU wheels
 # Install CPU-only PyTorch first to avoid downloading huge GPU wheels
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu

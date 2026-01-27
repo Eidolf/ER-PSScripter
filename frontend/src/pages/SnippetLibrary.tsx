@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getSnippets, createSnippet, updateSnippet, deleteSnippet, analyzeFolder, indexSnippet } from '../api/snippets';
+import { getSnippets, createSnippet, updateSnippet, deleteSnippet, analyzeFiles, indexSnippet } from '../api/snippets';
 import type { Snippet, SnippetCreate } from '../api/snippets';
 import { getSettings } from '../api/settings';
 import { STANDARD_CATEGORIES, SYSTEM_SETTING_CUSTOM_CATEGORIES } from '../utils/categories';
@@ -37,8 +37,8 @@ export default function SnippetLibrary() {
 
     // Import Modal State
     const [showImportModal, setShowImportModal] = useState(false);
-    const [importPath, setImportPath] = useState('');
     const [analyzing, setAnalyzing] = useState(false);
+    const [splitFunctions, setSplitFunctions] = useState(false);
     const [detectedSnippets, setDetectedSnippets] = useState<(SnippetCreate & { _tempId: number })[]>([]);
     const [snippetsToImport, setSnippetsToImport] = useState<number[]>([]);
 
@@ -238,18 +238,21 @@ export default function SnippetLibrary() {
         );
     };
 
-    const handleAnalyze = async () => {
-        if (!importPath) return;
+    const handleAnalyzeFiles = async (files: FileList) => {
         setAnalyzing(true);
         try {
-            const results = await analyzeFolder(importPath);
+            const fileArray = Array.from(files);
+            const results = await analyzeFiles(fileArray);
+
             // Add a temporary ID for selection
             const resultsWithId = results.map((s: SnippetCreate, idx: number) => ({ ...s, _tempId: idx }));
             setDetectedSnippets(resultsWithId);
-            setSnippetsToImport(resultsWithId.map((s) => s._tempId)); // Select all by default
+
+            // Auto-select non-duplicates
+            setSnippetsToImport(resultsWithId.filter((s: typeof resultsWithId[0]) => !s.is_duplicate).map((s: typeof resultsWithId[0]) => s._tempId));
         } catch (error) {
             console.error("Analysis failed", error);
-            alert("Failed to analyze folder. Ensure path exists on server.");
+            alert("Failed to analyze files. Please check connection.");
         } finally {
             setAnalyzing(false);
         }
@@ -270,7 +273,6 @@ export default function SnippetLibrary() {
             alert(`Successfully imported ${toImport.length} snippets!`);
             setShowImportModal(false);
             setDetectedSnippets([]);
-            setImportPath('');
             loadData();
         } catch (error) {
             console.error("Import failed", error);
@@ -536,7 +538,7 @@ export default function SnippetLibrary() {
                                         </p>
                                     </div>
 
-                                    <div className="flex justify-between items-center mb-2">
+                                    <div className="flex justify-between items-center mb-2 flex-wrap gap-y-2">
                                         <div className="flex gap-2">
                                             <span className={`text-xs px-2 py-1 rounded whitespace-nowrap flex-shrink-0 ${snippet.source === 'AI Generator'
                                                 ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300'
@@ -582,6 +584,18 @@ export default function SnippetLibrary() {
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    window.location.href = `/editor?id=${snippet.id}`;
+                                                }}
+                                                className="p-1 hover:bg-green-100 dark:hover:bg-green-900 rounded text-green-600 dark:text-green-400"
+                                                title="Open in Editor"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                                                </svg>
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
                                                     handleDownloadSnippet(snippet);
                                                 }}
                                                 className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
@@ -610,7 +624,7 @@ export default function SnippetLibrary() {
                                         <pre className="overflow-x-auto custom-scrollbar">{snippet.content.substring(0, 150)}{snippet.content.length > 150 ? '...' : ''}</pre>
                                     </div>
 
-                                    <div className="flex justify-between items-center mt-auto">
+                                    <div className="flex justify-between items-center mt-auto flex-wrap gap-y-2">
                                         <div className="flex gap-2 flex-wrap">
                                             {snippet.tags.map(tag => (
                                                 <span
@@ -890,27 +904,50 @@ export default function SnippetLibrary() {
                             </button>
                         </div>
 
-                        <div className="p-6 flex-col flex flex-1 overflow-hidden">
+                        <div className="p-6 flex flex-col flex-1 overflow-hidden min-h-0">
                             {!detectedSnippets.length ? (
-                                <div className="space-y-4">
-                                    <p className="text-gray-600 dark:text-gray-300">Enter the absolute path to a folder on the server containing <code>.ps1</code> files.</p>
-                                    <div className="flex gap-2">
+                                <div className="space-y-4 overflow-y-auto">
+                                    <p className="text-gray-600 dark:text-gray-300">Select <code>.ps1</code> files from your computer to analyze.</p>
+
+                                    <div className="flex items-center justify-center gap-2 mb-4">
                                         <input
-                                            className="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                            placeholder="/path/to/my/scripts"
-                                            value={importPath}
-                                            onChange={e => setImportPath(e.target.value)}
+                                            type="checkbox"
+                                            id="splitFunctions"
+                                            checked={splitFunctions}
+                                            onChange={e => setSplitFunctions(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
                                         />
-                                        <button
-                                            onClick={handleAnalyze}
-                                            disabled={analyzing || !importPath}
-                                            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition"
-                                        >
-                                            {analyzing ? 'Scanning...' : 'Scan'}
-                                        </button>
+                                        <label htmlFor="splitFunctions" className="text-gray-700 dark:text-gray-300 select-none">
+                                            Split script into individual functions
+                                        </label>
+                                    </div>
+
+                                    <div className="flex flex-col gap-4 items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 bg-gray-50 dark:bg-gray-800/50">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <div className="text-center">
+                                            <label className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg cursor-pointer transition shadow-lg font-medium inline-block">
+                                                <span>Select Files</span>
+                                                <input
+                                                    type="file"
+                                                    className="hidden"
+                                                    multiple
+                                                    accept=".ps1"
+                                                    onChange={(e) => {
+                                                        if (e.target.files && e.target.files.length > 0) {
+                                                            handleAnalyzeFiles(e.target.files);
+                                                        }
+                                                    }}
+                                                />
+                                            </label>
+                                            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                                {analyzing ? 'Scanning files...' : 'Select one or more .ps1 files'}
+                                            </p>
+                                        </div>
                                     </div>
                                     <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-4 rounded-lg text-sm">
-                                        Tip: The scanner detects functions (<code>function Name &#123;...&#125;</code>) and comment blocks. Files without these structures will be imported as whole file snippets.
+                                        Tip: If splitting is enabled, the scanner detects functions (<code>function Name &#123;...&#125;</code>). Otherwise, each file is imported as a single snippet.
                                     </div>
                                 </div>
                             ) : (
@@ -919,6 +956,7 @@ export default function SnippetLibrary() {
                                         <h4 className="font-bold text-lg dark:text-white">Found {detectedSnippets.length} Snippets</h4>
                                         <div className="text-sm">
                                             <button onClick={() => setSnippetsToImport(detectedSnippets.map(s => s._tempId))} className="text-blue-600 hover:underline mr-4">Select All</button>
+                                            <button onClick={() => setSnippetsToImport(detectedSnippets.filter(s => !s.is_duplicate).map(s => s._tempId))} className="text-green-600 hover:underline mr-4">Select New Only</button>
                                             <button onClick={() => setSnippetsToImport([])} className="text-gray-600 hover:underline">Deselect All</button>
                                         </div>
                                     </div>
@@ -938,7 +976,14 @@ export default function SnippetLibrary() {
                                                 />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between">
-                                                        <h5 className="font-bold text-gray-900 dark:text-white truncate">{snippet.name}</h5>
+                                                        <h5 className="font-bold text-gray-900 dark:text-white truncate flex items-center gap-2">
+                                                            {snippet.name}
+                                                            {snippet.is_duplicate && (
+                                                                <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded border border-orange-200 dark:border-orange-800">
+                                                                    Duplicate
+                                                                </span>
+                                                            )}
+                                                        </h5>
                                                         <span className="text-xs bg-gray-100 dark:bg-gray-600 px-2 py-0.5 rounded text-gray-600 dark:text-gray-300 ml-2 whitespace-nowrap">{snippet.tags.length} tags</span>
                                                     </div>
                                                     <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">{snippet.description || 'No description'}</p>
@@ -950,7 +995,7 @@ export default function SnippetLibrary() {
 
                                     <div className="mt-6 flex justify-end gap-3">
                                         <button
-                                            onClick={() => { setDetectedSnippets([]); setImportPath(''); }}
+                                            onClick={() => { setDetectedSnippets([]); }}
                                             className="px-4 py-2 border dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-white"
                                         >
                                             Back

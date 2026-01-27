@@ -2,12 +2,13 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, Query
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.models.snippet import Snippet
 from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
+from app.schemas.analysis import SnippetAnalysisResult
 from app.services.embedding_service import embedding_service
 from app.services.script_analyzer import ScriptAnalyzerService
 
@@ -16,7 +17,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 analyzer = ScriptAnalyzerService()
 
-@router.post("/analyze", response_model=list[SnippetCreate])
+@router.post("/analyze/upload", response_model=list[SnippetAnalysisResult])
+async def analyze_upload(
+    files: list[UploadFile],
+    split_functions: bool = Query(False, description="Whether to split script into functions"),
+    db: Session = Depends(deps.get_db)
+) -> Any:
+    """
+    Analyze uploaded files for PowerShell content.
+    """
+    snippets = []
+    for file in files:
+        if not file.filename.lower().endswith(".ps1"):
+            continue
+            
+        content_bytes = await file.read()
+        try:
+            content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            # Fallback for other encodings if needed
+            content = content_bytes.decode("latin-1")
+            
+        extracted = analyzer.analyze_content(content, file.filename, split_functions)
+        snippets.extend(extracted)
+    
+    # Fetch existing hashes to mark duplicates
+    existing_hashes = {r[0] for r in db.query(Snippet.content_hash).filter(Snippet.content_hash.isnot(None)).all()}
+    
+    results = []
+    for s in snippets:
+        res = SnippetAnalysisResult(**s.model_dump())
+        if s.content_hash and s.content_hash in existing_hashes:
+            res.is_duplicate = True
+        results.append(res)
+        
+    return results
+
+@router.post("/analyze", response_model=list[SnippetAnalysisResult])
 def analyze_folder(
     folder_path: str,
     db: Session = Depends(deps.get_db)
@@ -24,10 +61,22 @@ def analyze_folder(
     """
     Analyze a folder for PowerShell scripts and return detected snippets.
     Does not save automatically, purely returns found candidates.
+    Checks for duplicates based on content hash.
     """
     snippets = analyzer.analyze_folder(folder_path)
-    snippets = analyzer.analyze_folder(folder_path)
-    return snippets
+    
+    # Fetch existing hashes to mark duplicates
+    existing_hashes = {r[0] for r in db.query(Snippet.content_hash).filter(Snippet.content_hash.isnot(None)).all()}
+    
+    results = []
+    for s in snippets:
+        # Convert to AnalysisResult and flag duplicates
+        res = SnippetAnalysisResult(**s.model_dump())
+        if s.content_hash and s.content_hash in existing_hashes:
+            res.is_duplicate = True
+        results.append(res)
+        
+    return results
 
 @router.get("/tags", response_model=list[str])
 def get_unique_tags(
@@ -75,6 +124,11 @@ async def create_snippet(
         if "#function" not in snippet_in.tags:
             snippet_in.tags.append("#function")
 
+    if not snippet_in.content_hash:
+        # Compute if not provided
+        import hashlib
+        snippet_in.content_hash = hashlib.sha256(snippet_in.content.encode('utf-8')).hexdigest()
+
     snippet = Snippet(
         name=snippet_in.name,
         description=snippet_in.description,
@@ -83,7 +137,8 @@ async def create_snippet(
         category=snippet_in.category,
         source=snippet_in.source,
         project_id=snippet_in.project_id,
-        relative_path=snippet_in.relative_path
+        relative_path=snippet_in.relative_path,
+        content_hash=snippet_in.content_hash
     )
 
     try:

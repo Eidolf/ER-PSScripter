@@ -21,10 +21,16 @@ export interface SnippetCreate {
     source?: string;
     project_id?: number;
     relative_path?: string;
+    is_duplicate?: boolean;
 }
 
 export const getSnippets = async (): Promise<Snippet[]> => {
     const response = await client.get('/snippets/');
+    return response.data;
+};
+
+export const getSnippet = async (id: number): Promise<Snippet> => {
+    const response = await client.get(`/snippets/${id}`);
     return response.data;
 };
 
@@ -51,6 +57,23 @@ export const analyzeFolder = async (folderPath: string): Promise<SnippetCreate[]
     // Note: The backend endpoint expects 'folder_path' query param
     const response = await client.post('/snippets/analyze', null, {
         params: { folder_path: folderPath }
+    });
+    return response.data;
+};
+
+export const analyzeFiles = async (files: File[], splitFunctions: boolean = false): Promise<SnippetCreate[]> => {
+    const formData = new FormData();
+    files.forEach(file => {
+        formData.append('files', file);
+    });
+
+    const response = await client.post('/snippets/analyze/upload', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+        params: {
+            split_functions: splitFunctions
+        }
     });
     return response.data;
 };

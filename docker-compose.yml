@@ -33,7 +33,9 @@ services:
       - er-network
 
   db:
-    image: pgvector/pgvector:pg15
+    build:
+      context: ./db
+      dockerfile: Dockerfile
     container_name: er-psscripter-db
     restart: unless-stopped
     ports:
