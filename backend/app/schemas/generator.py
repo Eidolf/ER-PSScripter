@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -7,4 +9,6 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     content: str
+    explanation: str | None = None
     usage: dict[str, int] = {}
+    rag_info: dict[str, Any] = {}

@@ -33,4 +33,9 @@ async def generate_script(
     if isinstance(result, str):
          return GenerateResponse(content=result)
          
-    return GenerateResponse(content=result["content"], usage=result["usage"])
+    return GenerateResponse(
+        content=result["content"], 
+        explanation=result.get("explanation"),
+        usage=result["usage"],
+        rag_info=result.get("rag_info", {})
+    )

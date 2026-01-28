@@ -4,7 +4,10 @@ import PowerShellEditor from '../components/PowerShellEditor';
 import { useAuth } from '../context/AuthContext';
 import { getSnippet, updateSnippet, createSnippet } from '../api/snippets';
 import type { Snippet } from '../api/snippets';
+import { generateScript } from '../api/generator';
 import SaveSnippetModal from '../components/SaveSnippetModal';
+import AiEditModal from '../components/AiEditModal';
+import ExplanationModal from '../components/ExplanationModal';
 
 interface ExecutionResult {
     stdout: string;
@@ -40,8 +43,14 @@ Write-Output "Current date is: $date"
     useEffect(() => {
         if (snippetId) {
             loadSnippet(parseInt(snippetId));
+        } else {
+            // Check for passed state (e.g. from Generator)
+            const state = location.state as { code?: string } | null;
+            if (state?.code) {
+                setCode(state.code);
+            }
         }
-    }, [snippetId]);
+    }, [snippetId, location.state]);
 
     const loadSnippet = async (id: number) => {
         try {
@@ -136,11 +145,60 @@ Write-Output "Current date is: $date"
         });
     };
 
+    // AI Edit Logic
+    const [showAiModal, setShowAiModal] = useState(false);
+    const [isAiProcessing, setIsAiProcessing] = useState(false);
+
+    // Explanation Modal State
+    const [explanation, setExplanation] = useState('');
+    const [showExplanationModal, setShowExplanationModal] = useState(false);
+
+    // RAG Info State
+    const [ragInfo, setRagInfo] = useState<{ count: number; snippets: string[] } | null>(null);
+
+    const handleAiSubmit = async (instruction: string) => {
+        setIsAiProcessing(true);
+        try {
+            const prompt = `Original Code:\n\`\`\`powershell\n${code}\n\`\`\`\n\nInstruction:\n${instruction}`;
+            const response = await generateScript({
+                prompt,
+                snippet_ids: []
+            });
+            setCode(response.content);
+            setShowAiModal(false);
+
+            if (response.explanation) {
+                setExplanation(response.explanation);
+                setShowExplanationModal(true);
+            }
+
+            if (response.rag_info) {
+                setRagInfo(response.rag_info);
+            } else {
+                setRagInfo(null);
+            }
+        } catch (error) {
+            console.error("AI Edit failed", error);
+            alert("Failed to process with AI.");
+        } finally {
+            setIsAiProcessing(false);
+        }
+    };
+
     return (
         <div className="container mx-auto px-4 sm:px-6 py-4 sm:py-8 h-[calc(100vh-80px)] flex flex-col">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 sm:gap-0">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">PowerShell Editor</h1>
                 <div className="flex gap-3 w-full sm:w-auto">
+                    <button
+                        onClick={() => setShowAiModal(true)}
+                        className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        AI Edit
+                    </button>
                     <button
                         onClick={handleClear}
                         className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition text-center"
@@ -192,12 +250,32 @@ Write-Output "Current date is: $date"
             </div>
 
             <div className={`flex-1 flex flex-col ${showOutput ? 'h-3/5' : 'h-full'} gap-4`}>
-                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-1 flex-1 overflow-hidden">
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-1 flex-1 overflow-hidden relative">
                     <PowerShellEditor
                         code={code}
                         onChange={handleCodeChange}
                         height="100%"
                     />
+                    {ragInfo && ragInfo.count > 0 && (
+                        <div className="absolute bottom-2 left-4 text-xs bg-green-900/80 text-green-200 p-1.5 rounded backdrop-blur-sm border border-green-700/50 flex items-center gap-2 group cursor-help z-10">
+                            <span className="flex items-center gap-1 font-bold">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                                </svg>
+                                Used {ragInfo.count} learned snippets
+                            </span>
+
+                            {/* Tooltip on hover */}
+                            <div className="absolute bottom-full left-0 mb-2 w-max max-w-xs bg-gray-800 text-white text-xs rounded p-2 shadow-xl opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all pointer-events-none border border-gray-600">
+                                <div className="font-bold mb-1 border-b border-gray-600 pb-1">Auto-Included Context:</div>
+                                <ul className="list-disc pl-4 space-y-0.5">
+                                    {ragInfo.snippets.map((name, i) => (
+                                        <li key={i}>{name}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {showOutput && (
@@ -243,6 +321,17 @@ Write-Output "Current date is: $date"
                     } : undefined}
                 />
             )}
+            <AiEditModal
+                isOpen={showAiModal}
+                onClose={() => setShowAiModal(false)}
+                onSubmit={handleAiSubmit}
+                isLoading={isAiProcessing}
+            />
+            <ExplanationModal
+                isOpen={showExplanationModal}
+                onClose={() => setShowExplanationModal(false)}
+                explanation={explanation}
+            />
         </div>
     );
 };

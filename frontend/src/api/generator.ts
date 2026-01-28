@@ -9,10 +9,15 @@ export interface GenerateRequest {
 
 export interface GenerateResponse {
     content: string;
+    explanation?: string;
     usage?: {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
+    };
+    rag_info?: {
+        count: number;
+        snippets: string[];
     };
 }
 

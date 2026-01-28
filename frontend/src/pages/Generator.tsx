@@ -1,17 +1,21 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getSnippets, createSnippet } from '../api/snippets';
 import type { Snippet } from '../api/snippets';
 import { generateScript } from '../api/generator';
 import TagInput from '../components/TagInput';
+import ExplanationModal from '../components/ExplanationModal';
 import { getSettings } from '../api/settings';
 import { STANDARD_CATEGORIES, SYSTEM_SETTING_CUSTOM_CATEGORIES } from '../utils/categories';
 
 export default function Generator() {
+    const navigate = useNavigate();
     const [snippets, setSnippets] = useState<Snippet[]>([]);
     const [selectedSnippetIds, setSelectedSnippetIds] = useState<number[]>([]);
     const [prompt, setPrompt] = useState('');
     const [generatedCode, setGeneratedCode] = useState('');
     const [tokenUsage, setTokenUsage] = useState<{ prompt_tokens: number; completion_tokens: number; total_tokens: number } | null>(null);
+    const [ragInfo, setRagInfo] = useState<{ count: number; snippets: string[] } | null>(null);
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [categories, setCategories] = useState<string[]>(STANDARD_CATEGORIES);
@@ -20,6 +24,10 @@ export default function Generator() {
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [saveData, setSaveData] = useState({ name: '', description: '', tags: '', category: 'General' });
     const [saving, setSaving] = useState(false);
+
+    // Explanation Modal State
+    const [explanation, setExplanation] = useState('');
+    const [showExplanationModal, setShowExplanationModal] = useState(false);
 
     // Context Filter State
     const [contextSearch, setContextSearch] = useState('');
@@ -160,8 +168,19 @@ export default function Generator() {
                 snippet_ids: selectedSnippetIds
             });
             setGeneratedCode(response.content);
+
+            if (response.explanation) {
+                setExplanation(response.explanation);
+                setShowExplanationModal(true);
+            }
+
             if (response.usage) {
                 setTokenUsage(response.usage);
+            }
+            if (response.rag_info) {
+                setRagInfo(response.rag_info);
+            } else {
+                setRagInfo(null);
             }
         } catch (error) {
             console.error("Generation failed", error);
@@ -216,10 +235,10 @@ export default function Generator() {
     if (loading) return <div className="p-4 text-center">Loading...</div>;
 
     return (
-        <div className="container mx-auto p-6 h-[calc(100vh-4rem)] flex flex-col">
+        <div className="container mx-auto p-4 lg:p-6 lg:h-[calc(100vh-4rem)] h-auto flex flex-col">
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">AI Script Generator</h1>
 
-            <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
+            <div className="flex flex-col lg:flex-row gap-6 flex-1 lg:overflow-hidden">
                 {/* Left Panel: Configuration & Context */}
                 <div className="lg:w-1/3 flex flex-col gap-4 overflow-hidden">
                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col flex-1 overflow-hidden">
@@ -377,7 +396,7 @@ export default function Generator() {
                     </div>
 
                     {/* Output Area */}
-                    <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 flex flex-col flex-1 overflow-hidden relative">
+                    <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 flex flex-col flex-1 lg:overflow-hidden relative min-h-[500px] lg:min-h-0">
                         <div className="bg-gray-800 px-4 py-2 border-b border-gray-700 flex justify-between items-center">
                             <span className="text-gray-300 text-sm font-mono">Output.ps1</span>
                             {generatedCode && (
@@ -390,6 +409,15 @@ export default function Generator() {
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                                         </svg>
                                         Save to Library
+                                    </button>
+                                    <button
+                                        onClick={() => navigate('/editor', { state: { code: generatedCode } })}
+                                        className="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded transition flex items-center gap-1"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                                        </svg>
+                                        Open in Editor
                                     </button>
                                     <button
                                         onClick={copyToClipboard}
@@ -416,6 +444,26 @@ export default function Generator() {
                                     <span>Prompt: {tokenUsage.prompt_tokens}</span>
                                     <span>Completion: {tokenUsage.completion_tokens}</span>
                                     <span className="font-bold text-gray-400">Total: {tokenUsage.total_tokens}</span>
+                                </div>
+                            )}
+                            {ragInfo && ragInfo.count > 0 && (
+                                <div className="absolute bottom-2 left-4 text-xs bg-green-900/80 text-green-200 p-1.5 rounded backdrop-blur-sm border border-green-700/50 flex items-center gap-2 group cursor-help z-10">
+                                    <span className="flex items-center gap-1 font-bold">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                                        </svg>
+                                        Used {ragInfo.count} learned snippets
+                                    </span>
+
+                                    {/* Tooltip on hover */}
+                                    <div className="absolute bottom-full left-0 mb-2 w-max max-w-xs bg-gray-800 text-white text-xs rounded p-2 shadow-xl opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all pointer-events-none border border-gray-600">
+                                        <div className="font-bold mb-1 border-b border-gray-600 pb-1">Auto-Included Context:</div>
+                                        <ul className="list-disc pl-4 space-y-0.5">
+                                            {ragInfo.snippets.map((name, i) => (
+                                                <li key={i}>{name}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -536,6 +584,12 @@ export default function Generator() {
                     </div>
                 </div>
             )}
+
+            <ExplanationModal
+                isOpen={showExplanationModal}
+                onClose={() => setShowExplanationModal(false)}
+                explanation={explanation}
+            />
         </div>
     );
 }
