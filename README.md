@@ -46,6 +46,19 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
    npm run dev
    ```
 
+4. Setup Environment (`.env`)
+   Create a `.env` file in the root directory to configure the Docker environment, especially for optional features like the local LLM.
+
+   ```bash
+   # Environment Configuration for ER-PSScripter
+
+   # Enable Docker Compose Profiles
+   # Uncomment 'llm' to enable the built-in Ollama service (~4GB RAM usage)
+   # COMPOSE_PROFILES=llm
+   COMPOSE_PROFILES=
+   ```
+   *Tip: Use `COMPOSE_PROFILES=llm` if you want to use the completely offline, built-in AI service.*
+
 ## Key Features (New)
 - **Hybrid AI Config**: Use **Local (Simulated)** models for free indexing/learning and **Azure/OpenAI** for high-quality generation.
 - **RAG Learning**: The system learns from your existing snippets.
