@@ -40,6 +40,7 @@ cd ..
 # Parse arguments
 RUN_CI=false
 USE_CACHE=false
+REUSE_CONTAINER=false
 
 for arg in "$@"; do
     case $arg in
@@ -48,6 +49,9 @@ for arg in "$@"; do
             ;;
         --cache)
             USE_CACHE=true
+            ;;
+        --reuse)
+            REUSE_CONTAINER=true
             ;;
     esac
 done
@@ -62,22 +66,29 @@ if [ "$RUN_CI" = true ]; then
         CONTAINER_OPTS="--privileged --userns=host -u 0"
         
         if [ "$USE_CACHE" = true ]; then
-            echo "⚡ Caching enabled: Using Docker Volumes for persistence (running as root)..."
-            # Mount volumes to /root caches
-            CONTAINER_OPTS="$CONTAINER_OPTS -v er-psscripter-act-pip:/root/.cache/pip -v er-psscripter-act-npm:/root/.npm"
-            # Force environment variables so tools know where to look (since some actions might try to infer from UID)
+            echo "⚡ Caching enabled: Using Docker Volumes (Root-owned)..."
+            # Mount volumes to /root caches. Suffix '-root' guarantees fresh start with correct permissions.
+            CONTAINER_OPTS="$CONTAINER_OPTS -v er-psscripter-act-pip-root:/root/.cache/pip -v er-psscripter-act-npm-root:/root/.npm"
+            # Force environment variables
             CONTAINER_OPTS="$CONTAINER_OPTS --env XDG_CACHE_HOME=/root/.cache --env npm_config_cache=/root/.npm"
         fi
 
-        # Run the lint job specifically or the whole workflow
-        # Using workflow_dispatch event simulation
-        act workflow_dispatch -W .github/workflows/ci-orchestrator.yml --container-architecture linux/amd64 --container-options "$CONTAINER_OPTS"
+        ACT_CMD="act workflow_dispatch -W .github/workflows/ci-orchestrator.yml --container-architecture linux/amd64 --container-options \"$CONTAINER_OPTS\""
+        
+        if [ "$REUSE_CONTAINER" = true ]; then
+            echo "🔥 Reuse enabled: Container will be kept alive for speed (fastest)."
+            ACT_CMD="$ACT_CMD --reuse"
+        fi
+
+        # Run ACT
+        eval $ACT_CMD
+
     else
         echo "⚠️ 'act' not found. Skipping CI simulation."
     fi
 else
     echo "⏩ Skipping CI simulation (heavy). Run with './check-prepush.sh --ci' to include it."
-    echo "💡 Tip: Add '--cache' to speed up subsequent runs (e.g. './check-prepush.sh --ci --cache')."
+    echo "💡 Tip: Use '--ci --cache --reuse' for maximum speed during development!"
 fi
 
 echo "✅ All checks passed! You are ready to push."
