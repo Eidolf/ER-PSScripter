@@ -17,6 +17,7 @@ class TestConnectionRequest(BaseModel):
     azure_endpoint: str | None = None
     azure_deployment: str | None = None
     azure_api_version: str | None = None
+    model: str | None = None
 
 router = APIRouter()
 ai_service = AIService()
@@ -116,7 +117,7 @@ async def test_connection(
         "AZURE_OPENAI_ENDPOINT": request.azure_endpoint,
         "AZURE_OPENAI_DEPLOYMENT_NAME": request.azure_deployment,
         "AZURE_OPENAI_API_VERSION": request.azure_api_version,
-        "OPENAI_MODEL": "gpt-3.5-turbo" # Dummy model for listing/testing
+        "OPENAI_MODEL": request.model or "gpt-3.5-turbo" # Use provided model or fallback
     }
     
     try:
@@ -132,10 +133,17 @@ async def test_connection(
         
         try:
             if isinstance(client, openai.AsyncAzureOpenAI | openai.AsyncOpenAI):
+                
+                # Use the configured model
+                model_to_use = request.model
+                if request.provider == "azure":
+                    model_to_use = request.azure_deployment
+                elif not model_to_use:
+                     model_to_use = "gpt-3.5-turbo"
 
                 # Just try to generate a tiny string
                 await client.chat.completions.create(
-                    model=cast(Any, request.azure_deployment if request.provider == "azure" else "gpt-3.5-turbo"),
+                    model=cast(Any, model_to_use),
                     messages=[{"role": "user", "content": "Hi"}],
                     max_tokens=1,
                 )

@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api import deps
-from app.api.v1.endpoints import (
-    login, users, projects, snippets, generator, scripts, settings, tags, execute
-)
+from app.api.v1.endpoints import execute, generator, login, projects, scripts, settings, snippets, tags, users
 
 api_router = APIRouter()
 api_router.include_router(login.router, tags=["login"])

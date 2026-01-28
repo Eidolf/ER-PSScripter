@@ -137,7 +137,8 @@ export default function Settings() {
                 base_url: formValues["OPENAI_BASE_URL"],
                 azure_endpoint: formValues["AZURE_OPENAI_ENDPOINT"],
                 azure_deployment: formValues["AZURE_OPENAI_DEPLOYMENT_NAME"],
-                azure_api_version: formValues["AZURE_OPENAI_API_VERSION"]
+                azure_api_version: formValues["AZURE_OPENAI_API_VERSION"],
+                model: formValues["OPENAI_MODEL"]
             };
 
             const result = await testConnection(config);
@@ -241,6 +242,11 @@ export default function Settings() {
                             <p>
                                 <strong>Great choice!</strong> Your snippets will be indexed offline on your server using the local model.
                             </p>
+                            <div className="mt-2 text-xs bg-yellow-50 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 p-2 rounded border border-yellow-200 dark:border-yellow-800">
+                                <strong>Requirement:</strong> This requires the <code>llm</code> profile to be enabled in Docker.
+                                <br />
+                                If the connection fails, check your <code>.env</code> file: <code>COMPOSE_PROFILES=llm</code> and restart Docker.
+                            </div>
                             {provider !== "local_builtin" && (
                                 <p className="mt-1">
                                     Your <strong>Generation</strong> (Chat) will still use <strong>{provider === "azure" ? "Azure OpenAI" : "OpenAI"}</strong> for the best quality scripts.
@@ -362,7 +368,15 @@ export default function Settings() {
                                     placeholder="https://api.openai.com/v1"
                                     className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 />
-                                <p className="text-xs text-gray-500 mt-1">For Local LLMs (e.g. Ollama), use http://localhost:11434/v1</p>
+                                {provider === "local" && (
+                                    <div className="mt-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                                        <strong>Hint:</strong> For local Ollama on Linux/Docker, use:
+                                        <code className="block mt-1 bg-white dark:bg-black/20 p-1 rounded select-all">http://host.docker.internal:11434/v1</code>
+                                    </div>
+                                )}
+                                {provider !== "local" && (
+                                    <p className="text-xs text-gray-500 mt-1">For Local LLMs (e.g. Ollama), use http://localhost:11434/v1</p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -374,6 +388,9 @@ export default function Settings() {
                                     onChange={e => handleInputChange("OPENAI_MODEL", e.target.value)}
                                     className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 />
+                                {provider === "local" && (
+                                    <p className="text-xs text-gray-500 mt-1">e.g. <code>llama3</code>, <code>mistral</code>, <code>gemma</code></p>
+                                )}
                             </div>
                         </div>
                     )}

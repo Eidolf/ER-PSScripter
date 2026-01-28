@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+import os
 import subprocess
 import tempfile
-import os
+
+from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -15,7 +16,7 @@ class ScriptResponse(BaseModel):
     exit_code: int
 
 @router.post("/execute", response_model=ScriptResponse)
-async def execute_script(request: ScriptRequest):
+async def execute_script(request: ScriptRequest) -> ScriptResponse:
     """
     Execute a PowerShell script and return the output.
     """

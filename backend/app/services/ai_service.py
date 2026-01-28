@@ -23,11 +23,17 @@ class AIService:
         provider = config.get("LLM_PROVIDER", "openai")
         api_key = config.get("OPENAI_API_KEY", "")
         
-        # If API key is empty/placeholder, return None to signal config error
+        # Support for local LLMs (e.g., Ollama) which might not need an API Key
+        base_url = config.get("OPENAI_BASE_URL") or None
+        
+        # If API key is empty but we have a base_url, use a dummy key
+        if (not api_key or api_key == "sk-placeholder") and base_url:
+            api_key = "local-no-key"
+
+        # If still no API key and no base_url (or provider requires it), then fail
         if not api_key or api_key == "sk-placeholder":
-             # Try fallback to env if not in DB (backward compat)? No, fully switch to DB.
-             # Actually, for init simplicity, we can let it fail later or return partial client.
-             pass
+             # Return None to signal config error
+             return None, None
 
         client: Any = None
         if provider == "azure":
@@ -45,8 +51,15 @@ class AIService:
             )
             model = deployment
         else:
-            base_url = config.get("OPENAI_BASE_URL") or None # Empty string -> None
-            model = config.get("OPENAI_MODEL", "gpt-4o")
+            if provider == "local_builtin":
+                # Internal Docker URL for the built-in Ollama service
+                base_url = "http://ollama:11434/v1"
+                # Default to a small/fast model if none specified
+                model = config.get("OPENAI_MODEL") or "llama3"
+                api_key = "local-builtin" # Dummy key
+            else:
+                base_url = config.get("OPENAI_BASE_URL") or None # Empty string -> None
+                model = config.get("OPENAI_MODEL", "gpt-4o")
             
             client = openai.AsyncOpenAI(
                 api_key=api_key,
@@ -57,14 +70,19 @@ class AIService:
 
     def _construct_system_prompt(self, context_snippets: list[Snippet]) -> str:
         prompt = (
-            "You are an expert PowerShell script generator.\n"
-            "Your goal is to generate a PowerShell script based on the user's request.\n"
-            "You have access to the following existing snippets/functions from the user's library.\n"
-            "Prefer using these functions where appropriate to maintain consistency.\n\n"
+            "You are an expert PowerShell Scripting Assistant.\n"
+            "Your ONLY goal is to generate high-quality, production-ready PowerShell scripts.\n"
+            "Follow these strict rules:\n"
+            "1. OUTPUT VALID POWERSHELL CODE ONLY. Do not provide Python, Bash, or general explanations "
+            "unless specifically asked.\n"
+            "2. Wrap your code in ```powershell``` markdown blocks.\n"
+            "3. Use PowerShell Best Practices (CmdletBinding, strict parameters, error handling).\n"
+            "4. If you use provided Snippets, integrae them seamlessly.\n"
+            "5. Do NOT chatter. Be concise. The user wants CODE.\n\n"
         )
 
         if context_snippets:
-            prompt += "--- EXISTING SNIPPETS ---\n"
+            prompt += "--- EXISTING SNIPPETS (CONTEXT) ---\n"
             for snippet in context_snippets:
                 prompt += f"### Snippet: {snippet.name} (Tags: {snippet.tags})\n"
                 prompt += f"Description: {snippet.description}\n"
@@ -74,9 +92,7 @@ class AIService:
         prompt += (
             "If you use an existing snippet, assume it is available in the runspace "
             "(do not redefine it unless necessary, or wrap it in a 'Function' block if asked).\n"
-            "Provide ONLY the PowerShell code in your response, wrapped in a markdown code block "
-            "(```powershell ... ```).\n"
-            "If you need to explain something, add it as a comment in the code."
+            "Provide ONLY the PowerShell code in your response.\n"
         )
         return prompt
 

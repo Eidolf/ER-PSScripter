@@ -8,7 +8,7 @@ def test_extract_function_simple() -> None:
         Write-Host "Hello"
     }
     """
-    snippets = service._extract_functions(content, "test.ps1")
+    snippets = service._extract_functions(content, "test.ps1", split_functions=True)
     assert len(snippets) == 1
     assert snippets[0].name == "Get-Test"
     assert snippets[0].content is not None and 'Write-Host "Hello"' in snippets[0].content
@@ -23,7 +23,7 @@ def test_extract_function_nested_braces() -> None:
         return "Done"
     }
     """
-    snippets = service._extract_functions(content, "complex.ps1")
+    snippets = service._extract_functions(content, "complex.ps1", split_functions=True)
     assert len(snippets) == 1
     assert snippets[0].name == "Get-Complex"
     assert snippets[0].content.strip().endswith("}")
@@ -44,7 +44,7 @@ function Get-Helpful {
     param($Name)
 }
     """
-    snippets = service._extract_functions(content, "help.ps1")
+    snippets = service._extract_functions(content, "help.ps1", split_functions=True)
     assert len(snippets) == 1
     desc = snippets[0].description
     assert desc is not None
@@ -58,7 +58,7 @@ def test_multiple_functions() -> None:
     function Func-A { "A" }
     function Func-B { "B" }
     """
-    snippets = service._extract_functions(content, "multi.ps1")
+    snippets = service._extract_functions(content, "multi.ps1", split_functions=True)
     assert len(snippets) == 2
     assert snippets[0].name == "Func-A"
     assert snippets[1].name == "Func-B"

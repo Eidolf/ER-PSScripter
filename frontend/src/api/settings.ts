@@ -26,6 +26,7 @@ export const testConnection = async (config: {
     azure_endpoint?: string;
     azure_deployment?: string;
     azure_api_version?: string;
+    model?: string;
 }): Promise<{ success: boolean; message?: string; error?: string }> => {
     try {
         const response = await client.post('/settings/test-connection', config);

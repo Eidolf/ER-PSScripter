@@ -1,10 +1,8 @@
+import hashlib
 import os
 import re
 
 from app.schemas.snippet import SnippetCreate
-
-
-import hashlib
 
 # ...
 

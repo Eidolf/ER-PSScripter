@@ -14,6 +14,8 @@ services:
     volumes:
       - ./backend/data:/app/data
       - /home/dev/Documents:/home/dev/Documents
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
     networks:
@@ -48,9 +50,22 @@ services:
       - POSTGRES_DB=erpsscripter
     networks:
       - er-network
+  ollama:
+    image: ollama/ollama:latest
+    container_name: er-psscripter-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - er-network
+    profiles:
+      - llm
 
 volumes:
   postgres_data:
+  ollama_data:
 
 
 networks:

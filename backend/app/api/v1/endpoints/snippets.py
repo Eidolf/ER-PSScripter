@@ -2,13 +2,13 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.models.snippet import Snippet
-from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
 from app.schemas.analysis import SnippetAnalysisResult
+from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
 from app.services.embedding_service import embedding_service
 from app.services.script_analyzer import ScriptAnalyzerService
 
@@ -28,7 +28,7 @@ async def analyze_upload(
     """
     snippets = []
     for file in files:
-        if not file.filename.lower().endswith(".ps1"):
+        if not file.filename or not file.filename.lower().endswith(".ps1"):
             continue
             
         content_bytes = await file.read()
@@ -38,7 +38,7 @@ async def analyze_upload(
             # Fallback for other encodings if needed
             content = content_bytes.decode("latin-1")
             
-        extracted = analyzer.analyze_content(content, file.filename, split_functions)
+        extracted = analyzer.analyze_content(content, file.filename or "unknown", split_functions)
         snippets.extend(extracted)
     
     # Fetch existing hashes to mark duplicates
