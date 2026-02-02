@@ -8,6 +8,7 @@ import { generateScript } from '../api/generator';
 import SaveSnippetModal from '../components/SaveSnippetModal';
 import AiEditModal from '../components/AiEditModal';
 import ExplanationModal from '../components/ExplanationModal';
+import TerminalComponent from '../components/Terminal';
 
 interface ExecutionResult {
     stdout: string;
@@ -34,6 +35,7 @@ Write-Output "Current date is: $date"
     const [output, setOutput] = useState<ExecutionResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [showOutput, setShowOutput] = useState(false);
+    const [showTerminal, setShowTerminal] = useState(false);
 
     // Snippet State
     const [currentSnippet, setCurrentSnippet] = useState<Snippet | null>(null);
@@ -246,6 +248,19 @@ Write-Output "Current date is: $date"
                         )}
                         {isLoading ? 'Running...' : 'Run Script'}
                     </button>
+                    <button
+                        onClick={() => {
+                            setShowOutput(false);
+                            setShowTerminal(true);
+                        }}
+                        className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition flex items-center justify-center gap-2"
+                        title="Start interactive session (supports Read-Host)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                        </svg>
+                        Terminal
+                    </button>
                 </div>
             </div>
 
@@ -305,6 +320,28 @@ Write-Output "Current date is: $date"
                                 <span className="text-gray-500">Waiting for output...</span>
                             )}
                         </pre>
+                    </div>
+                )}
+
+                {showTerminal && (
+                    <div className="bg-gray-900 rounded-xl shadow-lg h-2/5 overflow-hidden flex flex-col">
+                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-700">
+                            <span className="text-gray-400 text-sm font-mono">Interactive Terminal</span>
+                            <button
+                                onClick={() => setShowTerminal(false)}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-hidden bg-black rounded p-0">
+                            <TerminalComponent
+                                initialInput={code}
+                                onSessionEnd={() => console.log("Session ended")}
+                            />
+                        </div>
                     </div>
                 )}
             </div>

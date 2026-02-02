@@ -8,6 +8,7 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from structlog import get_logger
 
 from app.api.v1.api import api_router
+from app.api.v1.endpoints import terminal
 from app.core.config import settings
 
 # Observability Setup
@@ -63,3 +64,4 @@ def readiness_check() -> dict[str, str]:
     return {"status": "ready"}
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(terminal.router, prefix="/ws", tags=["terminal"])

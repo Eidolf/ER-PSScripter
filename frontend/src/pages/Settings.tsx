@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getSettings, updateSettings, testConnection } from '../api/settings';
 import type { Setting } from '../api/settings';
 import { getTags, deleteTag } from '../api/snippets';
+import { exportBackup, importBackup } from '../api/backup';
 
 function TagManagement() {
     const [tags, setTags] = useState<string[]>([]);
@@ -453,6 +454,77 @@ export default function Settings() {
                         {(!formValues['CUSTOM_CATEGORIES'] || JSON.parse(formValues['CUSTOM_CATEGORIES']).length === 0) && (
                             <span className="text-gray-400 text-sm italic">No custom categories added.</span>
                         )}
+                    </div>
+                </div>
+
+                {/* System Backup Section */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+                    <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4 16.5V19h12v-2.5a.5.5 0 00-.5-.5h-11a.5.5 0 00-.5.5zM3.5 14H5v1.5a1.5 1.5 0 001.5 1.5h7a1.5 1.5 0 001.5-1.5V14h1.5a.5.5 0 00.5-.5V4.5A1.5 1.5 0 0015.5 3h-11A1.5 1.5 0 003 4.5v9a.5.5 0 00.5.5zM12 7a1 1 0 100-2 1 1 0 000 2zM8 7a1 1 0 100-2 1 1 0 000 2zM9 11a1 1 0 11-2 0 1 1 0 012 0zm4 0a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+                        </svg>
+                        Full System Backup
+                    </h2>
+                    <div className="space-y-4">
+                        <p className="text-gray-600 dark:text-gray-400 text-sm">
+                            Export specific configuration, projects, and snippets to a JSON file. Use this to migrate or restore your environment.
+                        </p>
+
+                        <div className="flex gap-4">
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        await exportBackup();
+                                        alert("Backup downloaded!");
+                                    } catch (e) {
+                                        alert("Export failed.");
+                                    }
+                                }}
+                                className="bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/60 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Export System
+                            </button>
+
+                            <label className="bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/60 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m-4-4v12" />
+                                </svg>
+                                Import System
+                                <input
+                                    type="file"
+                                    accept=".json"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+
+                                        if (!confirm("WARNING: Importing a system backup will merge/overwrite existing data. This cannot be undone. Are you sure?")) {
+                                            e.target.value = '';
+                                            return;
+                                        }
+
+                                        const reader = new FileReader();
+                                        reader.onload = async (ev) => {
+                                            try {
+                                                const content = ev.target?.result as string;
+                                                const jsonData = JSON.parse(content);
+                                                await importBackup(jsonData);
+                                                alert("System restored successfully!");
+                                                window.location.reload();
+                                            } catch (err) {
+                                                console.error("Import failed", err);
+                                                alert("Failed to import backup. Check file format.");
+                                            }
+                                        };
+                                        reader.readAsText(file);
+                                        e.target.value = '';
+                                    }}
+                                />
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
