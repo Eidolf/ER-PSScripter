@@ -17,7 +17,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.websocket("/terminal")
-async def terminal_websocket(websocket: WebSocket):
+async def terminal_websocket(websocket: WebSocket) -> None:
     await websocket.accept()
     
     # Master and Slave file descriptors for PTY
@@ -60,7 +60,7 @@ async def terminal_websocket(websocket: WebSocket):
         logger.info(f"Terminal session started. PID: {process.pid}")
 
         # Async loop to read from PTY and send to WebSocket
-        async def read_from_pty():
+        async def read_from_pty() -> None:
             try:
                 while True:
                     await asyncio.sleep(0.01) # Yield control

@@ -19,4 +19,5 @@ api_router.include_router(tags.router, prefix="/tags", tags=["tags"], dependenci
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"],
                           dependencies=[Depends(deps.get_current_user)])
 api_router.include_router(users.router, prefix="/users", tags=["users"], dependencies=[Depends(deps.get_current_user)])
-api_router.include_router(backup.router, prefix="/backup", tags=["backup"], dependencies=[Depends(deps.get_current_user)])
+api_router.include_router(backup.router, prefix="/backup", tags=["backup"],
+                          dependencies=[Depends(deps.get_current_user)])

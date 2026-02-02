@@ -94,6 +94,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({ onSessionEnd, initialInput
             ws.close();
             term.dispose();
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return <div ref={terminalRef} className="text-left" style={{ width: '100%', height: '100%', textAlign: 'left' }} />;

@@ -476,7 +476,8 @@ export default function Settings() {
                                     try {
                                         await exportBackup();
                                         alert("Backup downloaded!");
-                                    } catch (e) {
+                                    } catch (error) {
+                                        console.error("Export failed:", error);
                                         alert("Export failed.");
                                     }
                                 }}
