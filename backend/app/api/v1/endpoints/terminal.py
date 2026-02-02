@@ -1,19 +1,17 @@
 import asyncio
+import contextlib
+import fcntl
+import logging
 import os
 import pty
 import select
-import subprocess
-import struct
-import fcntl
-import termios
-import logging
-import time
-import tempfile
 import shutil
-from typing import Optional
+import struct
+import subprocess
+import tempfile
+import termios
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -70,7 +68,8 @@ async def terminal_websocket(websocket: WebSocket):
                     # Check if PTY has data to read
                     # We use select for non-blocking check or run in executor
                     # Since we are in async, blocking read on fd is bad.
-                    # We can use loop.add_reader, but let's try a simple polling with select first for simplicity inside async wrapper
+                    # We can use loop.add_reader, but let's try a simple polling with select first
+                    # for simplicity inside async wrapper
                     # or use run_in_executor for the blocking os.read
                     
                     # Simpler approach: asyncio.to_thread for blocking read
@@ -146,10 +145,8 @@ async def terminal_websocket(websocket: WebSocket):
                 process.kill()
         
         # Close master fd if open
-        try:
+        with contextlib.suppress(OSError):
             os.close(master_fd)
-        except OSError:
-            pass
 
         # Cleanup Temp Dir
         if os.path.exists(session_tmp_dir):
