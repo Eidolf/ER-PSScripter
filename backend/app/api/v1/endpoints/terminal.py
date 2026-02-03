@@ -23,6 +23,12 @@ async def terminal_websocket(websocket: WebSocket) -> None:
     # Master and Slave file descriptors for PTY
     master_fd, slave_fd = pty.openpty()
 
+    # Set initial window size to 80x24 to prevent PSReadLine from crashing with BufferWidth=0
+    # struct winsize { unsigned short ws_row; unsigned short ws_col; 
+    #                  unsigned short ws_xpixel; unsigned short ws_ypixel; };
+    winsize = struct.pack("HHHH", 24, 80, 0, 0)
+    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+
     # Disable default echo on the slave PTY because pwsh/PSReadLine handles its own echoing/highlighting.
     # If we leave this on, we get double characters (one from kernel TTY, one from shell).
     attrs = termios.tcgetattr(slave_fd)
@@ -45,8 +51,25 @@ async def terminal_websocket(websocket: WebSocket) -> None:
         env["TERM"] = "xterm-256color"
         env["LANG"] = "en_US.UTF-8"
 
+        # Resolve path to web_overlay.ps1
+        # terminal.py is in app/api/v1/endpoints
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # go up 4 levels to get to app root (endpoints -> v1 -> api -> app)
+        app_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        script_path = os.path.join(app_root, "scripts", "web_overlay.ps1")
+        
+        if not os.path.exists(script_path):
+             logger.warning(f"Web overlay script not found at {script_path}")
+
         process = subprocess.Popen(
-            ["pwsh", "-NoLogo", "-NoProfile"],
+            [
+                "pwsh", 
+                "-NoLogo", 
+                "-NoProfile", 
+                "-NoExit", 
+                "-Command", 
+                f". '{script_path}'"
+            ],
             preexec_fn=os.setsid,  # Create a new session
             stdin=slave_fd,
             stdout=slave_fd,

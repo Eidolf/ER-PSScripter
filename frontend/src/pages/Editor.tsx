@@ -1,25 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PowerShellEditor from '../components/PowerShellEditor';
-import { useAuth } from '../context/AuthContext';
+
 import { getSnippet, updateSnippet, createSnippet } from '../api/snippets';
 import type { Snippet } from '../api/snippets';
 import { generateScript } from '../api/generator';
 import SaveSnippetModal from '../components/SaveSnippetModal';
 import AiEditModal from '../components/AiEditModal';
 import ExplanationModal from '../components/ExplanationModal';
-import TerminalComponent from '../components/Terminal';
-
-interface ExecutionResult {
-    stdout: string;
-    stderr: string;
-    exit_code: number; // Changed from 'int' to 'number' for TypeScript
-}
+import TerminalComponent, { type TerminalRef } from '../components/Terminal';
 
 const Editor: React.FC = () => {
-    const { token } = useAuth();
+    // const { token } = useAuth(); // Unused now
     const location = useLocation();
     const navigate = useNavigate();
+    const terminalRef = useRef<TerminalRef>(null);
 
     // URL Params
     const searchParams = new URLSearchParams(location.search);
@@ -32,10 +27,8 @@ Write-Host "Hello, World!"
 $date = Get-Date
 Write-Output "Current date is: $date"
 `);
-    const [output, setOutput] = useState<ExecutionResult | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [showOutput, setShowOutput] = useState(false);
     const [showTerminal, setShowTerminal] = useState(false);
+    const [scriptToRun, setScriptToRun] = useState<string | undefined>(undefined);
 
     // Snippet State
     const [currentSnippet, setCurrentSnippet] = useState<Snippet | null>(null);
@@ -68,44 +61,23 @@ Write-Output "Current date is: $date"
         setCode(value || '');
     };
 
-    const handleRun = async () => {
-        setIsLoading(true);
-        setShowOutput(true);
-        setOutput(null);
-
-        try {
-            // In a real app, this should go through a proper API client service
-            // but for this task we can fetch directly or use the axios instance if imported
-            const response = await fetch('/api/v1/execute/execute', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ script: code })
-            });
-
-            if (!response.ok) {
-                throw new Error(`Error: ${response.statusText}`);
+    // Primary Action: Run Script (in Terminal)
+    const handleRunScript = () => {
+        if (!showTerminal) {
+            // If terminal is closed, open it and pass script to run on mount
+            setScriptToRun(code);
+            setShowTerminal(true);
+        } else {
+            // If terminal is already open, send text directly
+            if (terminalRef.current) {
+                terminalRef.current.sendText(code);
             }
-
-            const result = await response.json();
-            setOutput(result);
-        } catch (error) {
-            setOutput({
-                stdout: '',
-                stderr: error instanceof Error ? error.message : "Unknown error occurred",
-                exit_code: 1
-            });
-        } finally {
-            setIsLoading(false);
         }
     };
 
     const handleClear = () => {
         setCode('');
-        setOutput(null);
-        setShowOutput(false);
+        setScriptToRun(undefined);
         setCurrentSnippet(null);
         navigate('/editor');
     };
@@ -231,41 +203,41 @@ Write-Output "Current date is: $date"
                         </button>
                     )}
                     <button
-                        onClick={handleRun}
-                        disabled={isLoading}
-                        className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-white transition flex items-center justify-center gap-2 ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                    >
-                        {isLoading ? (
-                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                            </svg>
-                        )}
-                        {isLoading ? 'Running...' : 'Run Script'}
-                    </button>
-                    <button
-                        onClick={() => {
-                            setShowOutput(false);
-                            setShowTerminal(true);
-                        }}
-                        className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition flex items-center justify-center gap-2"
-                        title="Start interactive session (supports Read-Host)"
+                        onClick={handleRunScript}
+                        className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition flex items-center justify-center gap-2"
+                        title="Run script in interactive terminal"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                        </svg>
+                        Run Script
+                    </button>
+
+
+
+                    <button
+                        onClick={() => {
+                            if (showTerminal) {
+                                setShowTerminal(false);
+                            } else {
+                                setScriptToRun(undefined); // Just open, don't run anything
+                                setShowTerminal(true);
+                            }
+                        }}
+                        className={`flex-1 sm:flex-none px-4 py-2 rounded-lg transition flex items-center justify-center gap-2 ${showTerminal ? 'bg-orange-600 hover:bg-orange-700' : 'bg-orange-600 hover:bg-orange-700'} text-white`}
+                        title="Show/Hide Terminal"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
                         </svg>
                         Terminal
                     </button>
                 </div>
             </div>
 
-            <div className={`flex-1 flex flex-col ${showOutput ? 'h-3/5' : 'h-full'} gap-4`}>
-                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-1 flex-1 overflow-hidden relative">
+            {/* Main Content Area */}
+            <div className={`flex-1 flex flex-col items-stretch gap-4 ${showTerminal ? 'h-3/5' : 'h-full'}`}>
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-1 flex-1 overflow-hidden relative" style={{ minHeight: '300px' }}>
                     <PowerShellEditor
                         code={code}
                         onChange={handleCodeChange}
@@ -293,53 +265,30 @@ Write-Output "Current date is: $date"
                     )}
                 </div>
 
-                {showOutput && (
-                    <div className="bg-gray-900 rounded-xl shadow-lg p-4 h-2/5 overflow-auto flex flex-col">
-                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-700">
-                            <span className="text-gray-400 text-sm font-mono">Console Output</span>
-                            <button
-                                onClick={() => setShowOutput(false)}
-                                className="text-gray-400 hover:text-white"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <pre className="font-mono text-sm text-gray-300 whitespace-pre-wrap flex-1">
-                            {output ? (
-                                <>
-                                    {output.stdout && <span className="text-green-400">{output.stdout}</span>}
-                                    {output.stderr && <span className="text-red-400">{output.stderr}</span>}
-                                    {!output.stdout && !output.stderr && <span className="text-gray-500 italic">No output</span>}
-                                    <div className="mt-2 text-xs text-gray-600">
-                                        Exit Code: {output.exit_code}
-                                    </div>
-                                </>
-                            ) : (
-                                <span className="text-gray-500">Waiting for output...</span>
-                            )}
-                        </pre>
-                    </div>
-                )}
-
                 {showTerminal && (
                     <div className="bg-gray-900 rounded-xl shadow-lg h-2/5 overflow-hidden flex flex-col">
-                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-gray-700">
-                            <span className="text-gray-400 text-sm font-mono">Interactive Terminal</span>
+                        <div className="flex justify-between items-center px-4 py-2 border-b border-gray-700 bg-gray-800">
+                            <span className="text-gray-300 text-sm font-mono flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                                </svg>
+                                Interactive Terminal
+                            </span>
                             <button
                                 onClick={() => setShowTerminal(false)}
-                                className="text-gray-400 hover:text-white"
+                                className="text-gray-400 hover:text-white transition"
+                                title="Close Terminal"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
                         </div>
-                        <div className="flex-1 overflow-hidden bg-black rounded p-0">
+                        <div className="flex-1 overflow-hidden bg-black rounded-b-xl p-0 relative">
                             <TerminalComponent
-                                initialInput={code}
+                                ref={terminalRef}
                                 onSessionEnd={() => console.log("Session ended")}
+                                executeOnMount={scriptToRun}
                             />
                         </div>
                     </div>
