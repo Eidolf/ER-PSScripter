@@ -1,0 +1,85 @@
+name: CI Orchestrator
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - '.github/labeler.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - '.github/labeler.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Backend Checks ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Backend Deps
+        run: |
+          pip install poetry
+          cd backend && poetry install --no-root -E dev
+
+      - name: Lint Backend
+        run: cd backend && poetry run ruff check .
+
+      - name: Test Backend
+        run: cd backend && poetry run pytest
+
+      # --- Frontend Checks ---
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Deps
+        run: |
+          cd frontend
+          npm ci
+          npm audit fix --audit-level=high || true
+
+      - name: Lint Frontend
+        run: cd frontend && npm run lint
+
+      # --- Docker Build Validation ---
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Backend Build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: test-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validate Frontend Build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: test-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

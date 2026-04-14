@@ -1,0 +1,25 @@
+name: Rollback Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_to_rollback:
+        description: 'Version Tag to Rollback (e.g. 2024.01.1-beta)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete ${{ inputs.version_to_rollback }} --cleanup-tag --yes
+          echo "Deleted release and tag: ${{ inputs.version_to_rollback }}"

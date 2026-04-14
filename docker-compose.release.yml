@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    image: ghcr.io/eidolf/er-psscripter-backend:latest
+    restart: unless-stopped
+    ports:
+      - "13021:8000"
+    environment:
+      - PROJECT_NAME=ER-PSScripter
+      - SECRET_KEY=changethiskeyinproduction # CHANGE THIS
+      - BACKEND_CORS_ORIGINS=["http://localhost:13020", "http://localhost:5173", "http://localhost:13021"]
+
+      # Database
+      # - DATABASE_URL=... (Constructed automatically from below)
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=${POSTGRES_USER:-app_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password} # CHANGE THIS
+      - POSTGRES_DB=${POSTGRES_DB:-psscripter_db}
+    depends_on:
+      - db
+    volumes:
+      - ./data/backend:/app/data
+
+  frontend:
+    image: ghcr.io/eidolf/er-psscripter-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "13020:80"
+    depends_on:
+      - backend
+
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=app_user
+      - POSTGRES_PASSWORD=secure_password # CHANGE THIS
+      - POSTGRES_DB=psscripter_db
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
