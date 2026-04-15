@@ -122,6 +122,7 @@ ER-PSScripter is a production-ready application designed to analyze, manage, and
     *   Open the frontend (e.g., `http://your-server:13020`).
     *   You will be prompted to **Create an Admin Account** on the first visit.
     *   Enter your desired email and password to initialize the system.
+    *   *Note: If the system was pre-seeded (e.g., in development), the defaults are `admin@example.com` / `admin`.*
 
 3.  **Environment Variables**:
     *   **SECURITY**: Change `SECRET_KEY` and `POSTGRES_PASSWORD` for production use.
