@@ -10,6 +10,8 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/pull_request_template.md'
       - '.github/labeler.yml'
+      - 'project_manifest.json'
+      - 'project_connections.json'
   pull_request:
     branches: [ "main" ]
     paths-ignore:
@@ -19,11 +21,15 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/pull_request_template.md'
       - '.github/labeler.yml'
+      - 'project_manifest.json'
+      - 'project_connections.json'
   workflow_dispatch:
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -83,3 +89,22 @@ jobs:
           tags: test-frontend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # --- Automated Manifest Maintenance ---
+      - name: Regenerate Manifest
+        run: |
+          python3 scripts/generate_manifest.py
+          
+      - name: Commit and Push Changes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add project_manifest.json project_connections.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(docs): regenerate project manifest and connections [skip ci]"
+            git push
+          else
+            echo "No changes in manifest or connections."
+          fi
+
