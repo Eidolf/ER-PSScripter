@@ -9,6 +9,7 @@ from app.db.base_class import Base
 
 if TYPE_CHECKING:
     from app.models.project import Project
+    from app.models.snippet_version import SnippetVersion
 
 class Snippet(Base):
     id = Column(Integer, primary_key=True, index=True)
@@ -31,6 +32,7 @@ class Snippet(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="snippets")
+    versions: Mapped[list["SnippetVersion"]] = relationship("SnippetVersion", back_populates="snippet", cascade="all, delete-orphan", order_by="SnippetVersion.version.asc()")
 
     @property
     def has_embedding(self) -> bool:

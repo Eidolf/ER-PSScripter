@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.models.snippet import Snippet
+from app.models.snippet_version import SnippetVersion
 from app.schemas.analysis import SnippetAnalysisResult
-from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate
+from app.schemas.snippet import SnippetCreate, SnippetResponse, SnippetUpdate, SnippetVersionResponse
 from app.services.embedding_service import embedding_service
 from app.services.script_analyzer import ScriptAnalyzerService
 
@@ -155,6 +156,19 @@ async def create_snippet(
     db.add(snippet)
     db.commit()
     db.refresh(snippet)
+
+    # Create first version
+    version1 = SnippetVersion(
+        snippet_id=snippet.id,
+        version=1,
+        name=snippet.name,
+        description=snippet.description,
+        content=snippet.content,
+        parent_version_id=None
+    )
+    db.add(version1)
+    db.commit()
+
     return snippet
 
 @router.get("/{id}", response_model=SnippetResponse)
@@ -185,6 +199,32 @@ async def update_snippet(
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
         
+    # Fetch existing versions
+    existing_versions = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
+    if not existing_versions:
+        # Create version 1 with the CURRENT database content first
+        v1 = SnippetVersion(
+            snippet_id=snippet.id,
+            version=1,
+            name=snippet.name,
+            description=snippet.description,
+            content=snippet.content,
+            parent_version_id=None
+        )
+        db.add(v1)
+        db.commit()
+        db.refresh(v1)
+        existing_versions = [v1]
+
+    # Calculate parent version ID
+    parent_version_id = snippet_in.parent_version_id
+    if not parent_version_id:
+        # Default to the latest version's ID
+        parent_version_id = existing_versions[-1].id
+
+    # Calculate new version number
+    new_version_num = max(v.version for v in existing_versions) + 1
+
     # Auto-detect function in content update
     if snippet_in.content is not None and re.search(
         r"^\s*function\s+[\w-]+\s*\{", snippet_in.content, re.IGNORECASE | re.MULTILINE
@@ -194,23 +234,13 @@ async def update_snippet(
                  if "#function" not in snippet_in.tags:
                     snippet_in.tags.append("#function")
             else:
-                 # If tags are not in the update payload, we modify the object before model_dump?
-                 # No, model_dump uses snippet_in. 
-                # We can just update the snippet object logic below or modify snippet_in.tags here
-                # but snippets_in.tags is optional.
-                # Let's manually ensure the tag is added to the snippet object later if strictly needed,
-                # but simpler is to force it into the update_data later?
-                 # Actually, let's just modify the DB object tags if needed.
                  current_tags = list(snippet.tags) if snippet.tags else []
                  if "#function" not in current_tags:
-                     current_tags.append("#function")
-                     # We must pass this to the update loop essentially.
-                     # But the loop iterates update_data.
-                     # Let's inject into snippet_in to be safe? 
-                     # snippet_in.tags = current_tags -> this works if snippet_in allows it.
-                     snippet_in.tags = current_tags
+                      current_tags.append("#function")
+                      snippet_in.tags = current_tags
 
     update_data = snippet_in.model_dump(exclude_unset=True)
+    update_data.pop("parent_version_id", None)
     for field, value in update_data.items():
         setattr(snippet, field, value)
 
@@ -223,6 +253,16 @@ async def update_snippet(
         except Exception as e:
             logger.error(f"Failed to update embedding for snippet {id}: {e}")
 
+    # Create the new version record
+    new_version = SnippetVersion(
+        snippet_id=snippet.id,
+        version=new_version_num,
+        name=snippet_in.name,
+        description=snippet_in.description,
+        content=snippet_in.content,
+        parent_version_id=parent_version_id
+    )
+    db.add(new_version)
         
     db.add(snippet)
     db.commit()
@@ -270,3 +310,63 @@ async def index_snippet(
         raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}") from e
         
     return snippet
+
+
+@router.get("/{id}/versions", response_model=list[SnippetVersionResponse])
+def get_snippet_versions(
+    *,
+    db: Session = Depends(deps.get_db),
+    id: int
+) -> Any:
+    """
+    Get all versions of a snippet.
+    """
+    snippet = db.query(Snippet).filter(Snippet.id == id).first()
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    
+    versions = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
+    return versions
+
+
+@router.get("/{id}/versions/{version_id}", response_model=SnippetVersionResponse)
+def get_snippet_version(
+    *,
+    db: Session = Depends(deps.get_db),
+    id: int,
+    version_id: int
+) -> Any:
+    """
+    Get a specific version of a snippet.
+    """
+    version = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id, SnippetVersion.id == version_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
+
+
+@router.delete("/{id}/versions/{version_id}", response_model=SnippetVersionResponse)
+def delete_snippet_version(
+    *,
+    db: Session = Depends(deps.get_db),
+    id: int,
+    version_id: int
+) -> Any:
+    """
+    Delete a specific version of a snippet.
+    If it has children, we re-parent them to keep the tree intact.
+    """
+    version = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id, SnippetVersion.id == version_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+        
+    # Re-parent children
+    children = db.query(SnippetVersion).filter(SnippetVersion.parent_version_id == version_id).all()
+    for child in children:
+        child.parent_version_id = version.parent_version_id
+        db.add(child)
+        
+    db.delete(version)
+    db.commit()
+    return version
+

@@ -18,7 +18,20 @@ class SnippetCreate(SnippetBase):
     pass
 
 class SnippetUpdate(SnippetBase):
-    pass
+    parent_version_id: int | None = None
+
+class SnippetVersionResponse(BaseModel):
+    id: int
+    snippet_id: int
+    version: int
+    name: str
+    description: str | None = None
+    content: str
+    parent_version_id: int | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class SnippetResponse(SnippetBase):
     id: int

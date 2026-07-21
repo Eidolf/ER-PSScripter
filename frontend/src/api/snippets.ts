@@ -22,6 +22,18 @@ export interface SnippetCreate {
     project_id?: number;
     relative_path?: string;
     is_duplicate?: boolean;
+    parent_version_id?: number;
+}
+
+export interface SnippetVersion {
+    id: number;
+    snippet_id: number;
+    version: number;
+    name: string;
+    description?: string;
+    content: string;
+    parent_version_id?: number;
+    created_at: string;
 }
 
 export const getSnippets = async (): Promise<Snippet[]> => {
@@ -34,6 +46,16 @@ export const getSnippet = async (id: number): Promise<Snippet> => {
     return response.data;
 };
 
+export const getSnippetVersions = async (id: number): Promise<SnippetVersion[]> => {
+    const response = await client.get(`/snippets/${id}/versions`);
+    return response.data;
+};
+
+export const getSnippetVersion = async (id: number, versionId: number): Promise<SnippetVersion> => {
+    const response = await client.get(`/snippets/${id}/versions/${versionId}`);
+    return response.data;
+};
+
 export const createSnippet = async (snippet: SnippetCreate): Promise<Snippet> => {
     const response = await client.post('/snippets/', snippet);
     return response.data;
@@ -41,6 +63,11 @@ export const createSnippet = async (snippet: SnippetCreate): Promise<Snippet> =>
 
 export const updateSnippet = async (id: number, snippet: Partial<SnippetCreate>): Promise<Snippet> => {
     const response = await client.put(`/snippets/${id}`, snippet);
+    return response.data;
+};
+
+export const deleteSnippetVersion = async (id: number, versionId: number): Promise<SnippetVersion> => {
+    const response = await client.delete(`/snippets/${id}/versions/${versionId}`);
     return response.data;
 };
 
