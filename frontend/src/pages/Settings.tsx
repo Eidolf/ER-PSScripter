@@ -274,6 +274,81 @@ function MfaConfiguration() {
     );
 }
 
+function EntraIdSsoHelp() {
+    const [showHelp, setShowHelp] = useState(false);
+    
+    return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+            <h2 className="text-xl font-bold mb-2 text-gray-800 dark:text-white flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                    <svg className="h-5 w-5 text-blue-500" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M0 0H11V11H0V0Z" fill="#F25022"/>
+                        <path d="M12 0H23V11H12V0Z" fill="#7FBA00"/>
+                        <path d="M0 12H11V23H0V12Z" fill="#00A4EF"/>
+                        <path d="M12 12H23V23H12V12Z" fill="#FFB900"/>
+                    </svg>
+                    Microsoft EntraID SSO Integration Guide
+                </span>
+                <button
+                    onClick={() => setShowHelp(!showHelp)}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                >
+                    {showHelp ? 'Hide Instructions' : 'Show Instructions'}
+                </button>
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+                Follow these step-by-step instructions to register this application in the Microsoft Entra admin center and enable Single Sign-On (SSO).
+            </p>
+
+            {showHelp && (
+                <div className="space-y-4 border-t border-gray-100 dark:border-gray-700 pt-4 text-sm text-gray-600 dark:text-gray-300">
+                    <div className="space-y-2">
+                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 1: Register Application in Azure/Entra Portal</h3>
+                        <ol className="list-decimal pl-5 space-y-1">
+                            <li>Sign in to the <a href="https://entra.microsoft.com" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline font-semibold">Microsoft Entra admin center</a> as an administrator.</li>
+                            <li>Navigate to <strong>Identity &gt; Applications &gt; App registrations</strong> and click <strong>New registration</strong>.</li>
+                            <li>Enter a name (e.g. <code>ER-PSScripter</code>).</li>
+                            <li>Select <strong>Accounts in this organizational directory only</strong> (Single Tenant) or <strong>Accounts in any organizational directory</strong> (Multitenant) based on your requirements.</li>
+                            <li>Select <strong>Single-page application (SPA)</strong> or <strong>Web</strong> as the redirect platform and set the Redirect URI to: <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs select-all">http://localhost:13020/login/callback</code>.</li>
+                            <li>Click <strong>Register</strong>.</li>
+                        </ol>
+                    </div>
+
+                    <div className="space-y-2">
+                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 2: Create a Client Secret</h3>
+                        <ol className="list-decimal pl-5 space-y-1">
+                            <li>Under the newly registered application, go to <strong>Certificates & secrets &gt; Client secrets</strong>.</li>
+                            <li>Click <strong>New client secret</strong>.</li>
+                            <li>Enter a description, choose an expiration period, and click <strong>Add</strong>.</li>
+                            <li><strong>CRITICAL:</strong> Copy the secret <strong>Value</strong> immediately (not the Secret ID). You will not be able to see it again.</li>
+                        </ol>
+                    </div>
+
+                    <div className="space-y-2">
+                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 3: Configure API Permissions</h3>
+                        <ol className="list-decimal pl-5 space-y-1">
+                            <li>Go to <strong>API permissions</strong>.</li>
+                            <li>Ensure the following permissions are present under Microsoft Graph: <code>User.Read</code>, <code>email</code>, <code>openid</code>, <code>profile</code>.</li>
+                            <li>Click <strong>Grant admin consent for [Your Organization]</strong> to activate permissions automatically.</li>
+                        </ol>
+                    </div>
+
+                    <div className="space-y-2">
+                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 4: Update environment variables</h3>
+                        <p>Configure the backend server container by adding the values to your <code>.env</code> file:</p>
+                        <pre className="bg-gray-100 dark:bg-gray-900 p-3 rounded-lg text-xs font-mono select-all space-y-1 block border border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200">
+                            ENTRA_CLIENT_ID="[Your Application ID]"<br />
+                            ENTRA_CLIENT_SECRET="[Your Secret Value]"<br />
+                            ENTRA_TENANT_ID="[Your Tenant ID (e.g. common)]"<br />
+                            ENTRA_REDIRECT_URI="http://localhost:13020/login/callback"
+                        </pre>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Settings() {
     const [settings, setSettings] = useState<Setting[]>([]);
     const [loading, setLoading] = useState(true);
@@ -600,6 +675,9 @@ export default function Settings() {
 
             {/* Multi-Factor Authentication Section */}
             <MfaConfiguration />
+
+            {/* Microsoft EntraID SSO Guide Section */}
+            <EntraIdSsoHelp />
 
             {/* Manage Tags Section */}
             <TagManagement />
