@@ -39,9 +39,10 @@ export default function LoginCallback() {
                 } else {
                     throw new Error('No access token returned from server.');
                 }
-            } catch (err: any) {
+            } catch (err) {
                 console.error(err);
-                setError(err.message || 'An error occurred during EntraID login.');
+                const message = err instanceof Error ? err.message : 'An error occurred during EntraID login.';
+                setError(message);
             }
         };
 

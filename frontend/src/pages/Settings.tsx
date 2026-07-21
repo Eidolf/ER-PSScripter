@@ -118,8 +118,9 @@ function MfaConfiguration() {
             if (!res.ok) throw new Error("Failed to start MFA setup");
             const data = await res.json();
             setSetupData(data);
-        } catch (err: any) {
-            setError(err.message || "Failed to initialize setup.");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to initialize setup.";
+            setError(message);
         } finally {
             setActionLoading(false);
         }
@@ -146,8 +147,9 @@ function MfaConfiguration() {
             setSetupData(null);
             setVerificationCode('');
             loadUserMfaStatus();
-        } catch (err: any) {
-            setError(err.message || "Failed to enable MFA.");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to enable MFA.";
+            setError(message);
         } finally {
             setActionLoading(false);
         }
@@ -170,8 +172,9 @@ function MfaConfiguration() {
             }
             alert("MFA disabled successfully.");
             loadUserMfaStatus();
-        } catch (err: any) {
-            setError(err.message || "Failed to disable MFA.");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to disable MFA.";
+            setError(message);
         } finally {
             setActionLoading(false);
         }
