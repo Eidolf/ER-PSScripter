@@ -200,7 +200,12 @@ async def update_snippet(
         raise HTTPException(status_code=404, detail="Snippet not found")
         
     # Fetch existing versions
-    existing_versions = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
+    existing_versions = (
+        db.query(SnippetVersion)
+        .filter(SnippetVersion.snippet_id == id)
+        .order_by(SnippetVersion.version.asc())
+        .all()
+    )
     if not existing_versions:
         # Create version 1 with the CURRENT database content first
         v1 = SnippetVersion(
@@ -325,7 +330,12 @@ def get_snippet_versions(
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
     
-    versions = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
+    versions = (
+        db.query(SnippetVersion)
+        .filter(SnippetVersion.snippet_id == id)
+        .order_by(SnippetVersion.version.asc())
+        .all()
+    )
     return versions
 
 

@@ -3,12 +3,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-
-import jwt
 import httpx
+import jwt
 import pyotp
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core import security
@@ -28,7 +27,11 @@ def login_access_token(
     OAuth2 compatible token login, get an access token for future requests
     """
     user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not user.hashed_password or not security.verify_password(form_data.password, str(user.hashed_password)):
+    if (
+        not user
+        or not user.hashed_password
+        or not security.verify_password(form_data.password, str(user.hashed_password))
+    ):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     elif not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -119,7 +122,7 @@ def verify_mfa(
             raise HTTPException(status_code=400, detail="Invalid token type")
         user_id = payload.get("sub")
     except (jwt.PyJWTError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid or expired MFA token")
+        raise HTTPException(status_code=400, detail="Invalid or expired MFA token") from None
         
     user = db.query(User).filter(User.id == user_id).first()
     if not user or not user.is_active:

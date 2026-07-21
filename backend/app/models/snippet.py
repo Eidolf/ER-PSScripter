@@ -32,7 +32,12 @@ class Snippet(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     project: Mapped[Optional["Project"]] = relationship("Project", back_populates="snippets")
-    versions: Mapped[list["SnippetVersion"]] = relationship("SnippetVersion", back_populates="snippet", cascade="all, delete-orphan", order_by="SnippetVersion.version.asc()")
+    versions: Mapped[list["SnippetVersion"]] = relationship(
+        "SnippetVersion",
+        back_populates="snippet",
+        cascade="all, delete-orphan",
+        order_by="SnippetVersion.version.asc()"
+    )
 
     @property
     def has_embedding(self) -> bool:
