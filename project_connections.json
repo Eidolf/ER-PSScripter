@@ -1,0 +1,56 @@
+{
+  "features": {
+    "authentication": {
+      "description": "User login flow using OAuth2 passwords and JWT token verification.",
+      "backend": {
+        "models": ["backend/app/models/user.py"],
+        "endpoints": ["backend/app/api/v1/endpoints/login.py", "backend/app/api/v1/endpoints/users.py"],
+        "services": []
+      },
+      "frontend": {
+        "components": ["frontend/src/pages/Login.tsx"],
+        "hooks": ["frontend/src/context/AuthContext.tsx"],
+        "styles": []
+      }
+    },
+    "ai_script_generation": {
+      "description": "Generating PowerShell scripts automatically based on requirements using vector database RAG and LLM prompts.",
+      "backend": {
+        "models": ["backend/app/models/snippet.py"],
+        "endpoints": ["backend/app/api/v1/endpoints/scripts.py", "backend/app/api/v1/endpoints/snippets.py"],
+        "services": ["backend/app/services/ai_generator.py", "backend/app/services/embedding_service.py"]
+      },
+      "frontend": {
+        "components": ["frontend/src/pages/Generator.tsx"],
+        "hooks": [],
+        "styles": []
+      }
+    },
+    "script_editing_and_versioning": {
+      "description": "Loading, editing, saving (version incrementing), comparing, and deleting script versions in a hierarchical structure.",
+      "backend": {
+        "models": ["backend/app/models/snippet.py", "backend/app/models/snippet_version.py"],
+        "endpoints": ["backend/app/api/v1/endpoints/snippets.py"],
+        "services": []
+      },
+      "frontend": {
+        "components": ["frontend/src/pages/Editor.tsx"],
+        "hooks": [],
+        "styles": []
+      }
+    },
+    "script_execution": {
+      "description": "Executing PowerShell scripts asynchronously and interacting through xterm-based terminal sessions.",
+      "backend": {
+        "models": [],
+        "endpoints": ["backend/app/api/v1/endpoints/execute.py", "backend/app/api/v1/endpoints/terminal.py"],
+        "services": []
+      },
+      "frontend": {
+        "components": ["frontend/src/components/Terminal.tsx", "frontend/src/pages/Editor.tsx"],
+        "hooks": [],
+        "styles": []
+      }
+    }
+  }
+}
