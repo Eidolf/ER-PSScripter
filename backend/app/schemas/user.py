@@ -28,4 +28,20 @@ class UserInDBBase(UserBase):
 
 # Additional properties to return via API
 class User(UserInDBBase):
-    pass
+    mfa_enabled: bool = False
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+    qr_code_base64: str
+
+
+class MfaEnableRequest(BaseModel):
+    code: str
+
+
+class MfaVerifyRequest(BaseModel):
+    mfa_token: str
+    code: str
+

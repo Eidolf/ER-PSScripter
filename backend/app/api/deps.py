@@ -33,6 +33,11 @@ def get_current_user(
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
+        if payload.get("type") == "mfa_temp":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="MFA verification required",
+            )
         token_data = TokenPayload(**payload)
     except (jwt.PyJWTError, ValidationError):
         raise HTTPException(

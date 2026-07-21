@@ -7,6 +7,7 @@ import Generator from './pages/Generator';
 import Editor from './pages/Editor';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import LoginCallback from './pages/LoginCallback';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Users from './pages/Users';
@@ -70,6 +71,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/login/callback" element={<LoginCallback />} />
           <Route path="/*" element={<Layout />} />
         </Routes>
       </AuthProvider>

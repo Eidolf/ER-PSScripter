@@ -74,6 +74,206 @@ function TagManagement() {
     );
 }
 
+function MfaConfiguration() {
+    const [mfaEnabled, setMfaEnabled] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [setupData, setSetupData] = useState<{ secret: string; qr_code_base64: string } | null>(null);
+    const [verificationCode, setVerificationCode] = useState('');
+    const [error, setError] = useState('');
+    const [actionLoading, setActionLoading] = useState(false);
+
+    useEffect(() => {
+        loadUserMfaStatus();
+    }, []);
+
+    const loadUserMfaStatus = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('/api/v1/users/me', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            if (res.ok) {
+                const user = await res.json();
+                setMfaEnabled(user.mfa_enabled);
+            }
+        } catch (error) {
+            console.error("Failed to load user info", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSetup = async () => {
+        setActionLoading(true);
+        setError('');
+        try {
+            const res = await fetch('/api/v1/users/mfa/setup', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            if (!res.ok) throw new Error("Failed to start MFA setup");
+            const data = await res.json();
+            setSetupData(data);
+        } catch (err: any) {
+            setError(err.message || "Failed to initialize setup.");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleEnable = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setActionLoading(true);
+        setError('');
+        try {
+            const res = await fetch('/api/v1/users/mfa/enable', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ code: verificationCode })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || "Verification failed");
+            }
+            alert("MFA enabled successfully!");
+            setSetupData(null);
+            setVerificationCode('');
+            loadUserMfaStatus();
+        } catch (err: any) {
+            setError(err.message || "Failed to enable MFA.");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleDisable = async () => {
+        if (!confirm("Are you sure you want to disable Multi-Factor Authentication? Your account security will be reduced.")) return;
+        setActionLoading(true);
+        setError('');
+        try {
+            const res = await fetch('/api/v1/users/mfa/disable', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || "Failed to disable MFA");
+            }
+            alert("MFA disabled successfully.");
+            loadUserMfaStatus();
+        } catch (err: any) {
+            setError(err.message || "Failed to disable MFA.");
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    if (loading) {
+        return <div className="text-sm text-gray-500 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">Checking security status...</div>;
+    }
+
+    return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+            <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M2.166 4.9L10 1.554 17.834 4.9a1 1 0 01.616.92v5.337a8 8 0 01-4.09 6.963l-4.03 2.21a1 1 0 01-.93 0l-4.03-2.21a8 8 0 01-4.09-6.963V5.82a1 1 0 01.616-.92zM9 11a1 1 0 112 0v2a1 1 0 11-2 0v-2zm1-7a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+                </svg>
+                Multi-Factor Authentication (MFA)
+            </h2>
+            <div className="space-y-4">
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                    Protect your local credentials by enforcing a 6-digit verification code from your authenticator app during login.
+                </p>
+
+                {mfaEnabled ? (
+                    <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                            <h3 className="text-sm font-bold text-green-800 dark:text-green-300">MFA is Active</h3>
+                            <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">Your account is secured using TOTP authentication.</p>
+                        </div>
+                        <button
+                            onClick={handleDisable}
+                            disabled={actionLoading}
+                            className="bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-4 py-2 rounded-lg font-medium text-xs transition"
+                        >
+                            Disable MFA
+                        </button>
+                    </div>
+                ) : (
+                    <div>
+                        {!setupData ? (
+                            <button
+                                onClick={handleSetup}
+                                disabled={actionLoading}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
+                            >
+                                Setup Authenticator App
+                            </button>
+                        ) : (
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-4 bg-gray-50 dark:bg-gray-900/20 space-y-4 max-w-md">
+                                <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200">Verify MFA Connection</h3>
+                                <p className="text-xs text-gray-500">Scan the QR code below using Google Authenticator, Microsoft Authenticator, or another compatible app.</p>
+                                
+                                <div className="flex justify-center bg-white p-3 rounded-lg border border-gray-200 w-fit mx-auto">
+                                    <img src={setupData.qr_code_base64} alt="QR Code" className="h-44 w-44" />
+                                </div>
+                                
+                                <div className="text-center">
+                                    <span className="text-[10px] text-gray-400 uppercase tracking-wider block mb-1">Secret Key</span>
+                                    <code className="bg-gray-100 dark:bg-gray-850 px-2 py-1 rounded text-xs select-all font-mono font-bold text-gray-700 dark:text-gray-300">{setupData.secret}</code>
+                                </div>
+
+                                <form onSubmit={handleEnable} className="space-y-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 block mb-1">Enter Verification Code</label>
+                                        <input
+                                            type="text"
+                                            maxLength={6}
+                                            required
+                                            placeholder="e.g. 123456"
+                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-center font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-900 dark:text-white"
+                                            value={verificationCode}
+                                            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                                        />
+                                    </div>
+
+                                    {error && <div className="text-red-500 text-xs text-center">{error}</div>}
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSetupData(null)}
+                                            className="w-1/3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-850"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={actionLoading}
+                                            className="w-2/3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition"
+                                        >
+                                            Confirm & Enable
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function Settings() {
     const [settings, setSettings] = useState<Setting[]>([]);
     const [loading, setLoading] = useState(true);
@@ -397,6 +597,9 @@ export default function Settings() {
                     )}
                 </div>
             </div>
+
+            {/* Multi-Factor Authentication Section */}
+            <MfaConfiguration />
 
             {/* Manage Tags Section */}
             <TagManagement />

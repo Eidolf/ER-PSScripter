@@ -1,3 +1,7 @@
+import base64
+import io
+import pyotp
+import qrcode
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +12,7 @@ from app.api import deps
 from app.core.security import get_password_hash
 from app.models.user import User
 from app.schemas.user import User as UserSchema
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import UserCreate, UserUpdate, MfaSetupResponse, MfaEnableRequest
 
 router = APIRouter()
 
@@ -121,3 +125,88 @@ def delete_user(
     db.delete(user)
     db.commit()
     return user
+
+
+@router.post("/mfa/setup", response_model=MfaSetupResponse)
+def setup_mfa(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Generate TOTP secret and QR code for authenticator setup.
+    """
+    if current_user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is already enabled")
+        
+    # Generate secret if not already set, or generate a new one
+    secret = pyotp.random_base32()
+    current_user.mfa_secret = secret
+    db.add(current_user)
+    db.commit()
+    
+    otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=current_user.email, issuer_name="ER-PSScripter"
+    )
+    
+    # Generate QR Code image as base64
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(otpauth_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    qr_code_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    
+    return {
+        "secret": secret,
+        "otpauth_url": otpauth_url,
+        "qr_code_base64": f"data:image/png;base64,{qr_code_base64}"
+    }
+
+
+@router.post("/mfa/enable", response_model=UserSchema)
+def enable_mfa(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+    enable_in: MfaEnableRequest
+) -> Any:
+    """
+    Verify TOTP code and enable MFA.
+    """
+    if current_user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is already enabled")
+    if not current_user.mfa_secret:
+        raise HTTPException(status_code=400, detail="MFA has not been set up yet")
+        
+    totp = pyotp.TOTP(current_user.mfa_secret)
+    if not totp.verify(enable_in.code):
+        raise HTTPException(status_code=400, detail="Incorrect code. MFA could not be enabled.")
+        
+    current_user.mfa_enabled = True
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/mfa/disable", response_model=UserSchema)
+def disable_mfa(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """
+    Disable MFA for current user.
+    """
+    if not current_user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is already disabled")
+        
+    current_user.mfa_enabled = False
+    current_user.mfa_secret = None
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user

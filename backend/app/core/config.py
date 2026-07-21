@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "admin"
 
+    # EntraID SSO Configuration
+    ENTRA_CLIENT_ID: str | None = None
+    ENTRA_CLIENT_SECRET: str | None = None
+    ENTRA_TENANT_ID: str = "common"
+    ENTRA_REDIRECT_URI: str = "http://localhost:13020/login/callback"
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
