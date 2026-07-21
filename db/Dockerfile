@@ -4,8 +4,8 @@ FROM postgres:15-alpine
 RUN apk add --no-cache --virtual .build-deps \
     build-base \
     git \
-    clang19 \
-    llvm19-dev \
+    clang21 \
+    llvm21-dev \
     && cd /tmp \
     && git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git \
     && cd pgvector \
