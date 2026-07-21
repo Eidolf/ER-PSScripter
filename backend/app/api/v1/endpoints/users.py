@@ -2,18 +2,17 @@ import base64
 import io
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.encoders import jsonable_encoder
 import pyotp
 import qrcode
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.security import get_password_hash
 from app.models.user import User
-from app.schemas.user import MfaEnableRequest, MfaSetupResponse
+from app.schemas.user import MfaEnableRequest, MfaSetupResponse, UserCreate, UserUpdate
 from app.schemas.user import User as UserSchema
-from app.schemas.user import UserCreate, UserUpdate
 
 router = APIRouter()
 

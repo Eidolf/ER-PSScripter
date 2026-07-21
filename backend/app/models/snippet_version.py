@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 
 from app.db.base_class import Base
 
+
 class SnippetVersion(Base):
     id = Column(Integer, primary_key=True, index=True)
     snippet_id = Column(Integer, ForeignKey("snippet.id", ondelete="CASCADE"), nullable=False)
