@@ -279,6 +279,8 @@ function MfaConfiguration() {
 
 function EntraIdSsoHelp() {
     const [showHelp, setShowHelp] = useState(false);
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://er-psscripter.eidolf.de';
+    const currentRedirectUri = `${currentOrigin}/login/callback`;
     
     return (
         <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
@@ -305,6 +307,14 @@ function EntraIdSsoHelp() {
 
             {showHelp && (
                 <div className="space-y-4 border-t border-gray-100 dark:border-gray-700 pt-4 text-sm text-gray-600 dark:text-gray-300">
+                    <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 rounded-lg text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                        <span className="font-bold block">Important Note on Redirect URIs (AADSTS90102 Fix):</span>
+                        <p>
+                            Microsoft EntraID requires the Redirect URI to be a <strong>valid absolute URI with scheme</strong> (e.g. <code>{currentRedirectUri}</code>). 
+                            If you omit <code>https://</code> or enter an incomplete domain, Microsoft will reject authentication with the error <code>AADSTS90102</code>.
+                        </p>
+                    </div>
+
                     <div className="space-y-2">
                         <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 1: Register Application in Azure/Entra Portal</h3>
                         <ol className="list-decimal pl-5 space-y-1">
@@ -312,7 +322,7 @@ function EntraIdSsoHelp() {
                             <li>Navigate to <strong>Identity &gt; Applications &gt; App registrations</strong> and click <strong>New registration</strong>.</li>
                             <li>Enter a name (e.g. <code>ER-PSScripter</code>).</li>
                             <li>Select <strong>Accounts in this organizational directory only</strong> (Single Tenant) or <strong>Accounts in any organizational directory</strong> (Multitenant) based on your requirements.</li>
-                            <li>Select <strong>Single-page application (SPA)</strong> or <strong>Web</strong> as the redirect platform and set the Redirect URI to: <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs select-all">http://localhost:13020/login/callback</code>.</li>
+                            <li>Select <strong>Single-page application (SPA)</strong> or <strong>Web</strong> as the redirect platform and set the Redirect URI to your exact external URL: <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs select-all">{currentRedirectUri}</code>.</li>
                             <li>Click <strong>Register</strong>.</li>
                         </ol>
                     </div>
@@ -337,13 +347,13 @@ function EntraIdSsoHelp() {
                     </div>
 
                     <div className="space-y-2">
-                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 4: Update environment variables</h3>
-                        <p>Configure the backend server container by adding the values to your <code>.env</code> file:</p>
+                        <h3 className="font-bold text-gray-800 dark:text-gray-200">Step 4: Save Configuration in Settings</h3>
+                        <p>Fill out the <strong>Microsoft EntraID SSO Configuration</strong> form above on this page and click <strong>Save Settings</strong> at the bottom:</p>
                         <pre className="bg-gray-100 dark:bg-gray-900 p-3 rounded-lg text-xs font-mono select-all space-y-1 block border border-gray-200 dark:border-gray-800 text-gray-800 dark:text-gray-200">
-                            ENTRA_CLIENT_ID="[Your Application ID]"<br />
-                            ENTRA_CLIENT_SECRET="[Your Secret Value]"<br />
-                            ENTRA_TENANT_ID="[Your Tenant ID (e.g. common)]"<br />
-                            ENTRA_REDIRECT_URI="http://localhost:13020/login/callback"
+                            Application (Client) ID: [Your Application ID]<br />
+                            Directory (Tenant) ID: common (or your Tenant UUID)<br />
+                            Client Secret Value: [Your Secret Value]<br />
+                            Redirect URI: {currentRedirectUri}
                         </pre>
                     </div>
                 </div>
@@ -673,6 +683,95 @@ export default function Settings() {
                             </div>
                         </div>
                     )}
+                </div>
+            </div>
+
+            {/* Microsoft EntraID SSO Configuration Card */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6">
+                <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-white flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                        <svg className="h-5 w-5 text-blue-500" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M0 0H11V11H0V0Z" fill="#F25022"/>
+                            <path d="M12 0H23V11H12V0Z" fill="#7FBA00"/>
+                            <path d="M0 12H11V23H0V12Z" fill="#00A4EF"/>
+                            <path d="M12 12H23V23H12V12Z" fill="#FFB900"/>
+                        </svg>
+                        Microsoft EntraID SSO Configuration
+                    </span>
+                    <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                        {formValues["ENTRA_CLIENT_ID"] ? "Configured" : "Not Configured"}
+                    </span>
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+                    Configure your Microsoft EntraID App registration keys directly here without needing to edit backend configuration files.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Application (Client) ID
+                        </label>
+                        <input
+                            type="text"
+                            value={formValues["ENTRA_CLIENT_ID"] || ''}
+                            onChange={e => handleInputChange("ENTRA_CLIENT_ID", e.target.value)}
+                            placeholder="e.g. 00000000-0000-0000-0000-000000000000"
+                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Directory (Tenant) ID
+                        </label>
+                        <input
+                            type="text"
+                            value={formValues["ENTRA_TENANT_ID"] || 'common'}
+                            onChange={e => handleInputChange("ENTRA_TENANT_ID", e.target.value)}
+                            placeholder="common (or your specific tenant ID)"
+                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Use <code>common</code> for multi-tenant or your Tenant UUID.</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Client Secret Value
+                        </label>
+                        <input
+                            type="password"
+                            value={formValues["ENTRA_CLIENT_SECRET"] || ''}
+                            onChange={e => handleInputChange("ENTRA_CLIENT_SECRET", e.target.value)}
+                            placeholder={formValues["ENTRA_CLIENT_SECRET"] ? "••••••••" : "Paste Secret Value here"}
+                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                        />
+                    </div>
+
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Redirect URI
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const autoUri = `${window.location.origin}/login/callback`;
+                                    handleInputChange("ENTRA_REDIRECT_URI", autoUri);
+                                }}
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                            >
+                                Use current domain
+                            </button>
+                        </div>
+                        <input
+                            type="text"
+                            value={formValues["ENTRA_REDIRECT_URI"] || ''}
+                            onChange={e => handleInputChange("ENTRA_REDIRECT_URI", e.target.value)}
+                            placeholder={`e.g. ${typeof window !== 'undefined' ? window.location.origin : 'https://er-psscripter.eidolf.de'}/login/callback`}
+                            className="w-full p-2 border rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Must be an absolute URL starting with <code>https://</code> (or <code>http://localhost</code>).</p>
+                    </div>
                 </div>
             </div>
 

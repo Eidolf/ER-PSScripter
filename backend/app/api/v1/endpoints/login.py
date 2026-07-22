@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 import jwt
 import pyotp
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,11 +12,38 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.core import security
 from app.core.config import settings
+from app.models.setting import SystemSetting
 from app.models.user import User
 from app.schemas.token import Token
 from app.schemas.user import MfaVerifyRequest
 
 router = APIRouter()
+
+
+def _get_entra_config(db: Session, request: Request) -> tuple[str, str, str, str]:
+    db_client_id = db.query(SystemSetting).filter(SystemSetting.key == "ENTRA_CLIENT_ID").first()
+    db_client_secret = db.query(SystemSetting).filter(SystemSetting.key == "ENTRA_CLIENT_SECRET").first()
+    db_tenant_id = db.query(SystemSetting).filter(SystemSetting.key == "ENTRA_TENANT_ID").first()
+    db_redirect_uri = db.query(SystemSetting).filter(SystemSetting.key == "ENTRA_REDIRECT_URI").first()
+
+    client_id = (db_client_id.value if db_client_id and db_client_id.value else settings.ENTRA_CLIENT_ID) or ""
+    client_secret = (
+        db_client_secret.value if db_client_secret and db_client_secret.value else settings.ENTRA_CLIENT_SECRET
+    ) or ""
+    tenant_id = (db_tenant_id.value if db_tenant_id and db_tenant_id.value else settings.ENTRA_TENANT_ID) or "common"
+    redirect_uri = (
+        db_redirect_uri.value if db_redirect_uri and db_redirect_uri.value else settings.ENTRA_REDIRECT_URI
+    ) or ""
+
+    if not redirect_uri:
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        redirect_uri = f"{proto}://{host}/login/callback" if host else "http://localhost:13020/login/callback"
+
+    if not (redirect_uri.startswith("http://") or redirect_uri.startswith("https://")):
+        redirect_uri = f"https://{redirect_uri.lstrip('/')}"
+
+    return client_id, client_secret, tenant_id, redirect_uri
 
 
 @router.post("/login/access-token", response_model=Token)
@@ -142,19 +169,23 @@ def verify_mfa(
 
 
 @router.get("/login/entra/url")
-def get_entra_login_url() -> Any:
+def get_entra_login_url(
+    request: Request,
+    db: Session = Depends(deps.get_db)
+) -> Any:
     """
     Generate Microsoft EntraID Authorization Redirect URL.
     """
-    if not settings.ENTRA_CLIENT_ID:
+    client_id, client_secret, tenant_id, redirect_uri = _get_entra_config(db, request)
+
+    if not client_id or not client_secret:
         return {"enabled": False, "url": ""}
         
-    tenant = settings.ENTRA_TENANT_ID
     url = (
-        f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
-        f"?client_id={settings.ENTRA_CLIENT_ID}"
+        f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
+        f"?client_id={client_id}"
         f"&response_type=code"
-        f"&redirect_uri={settings.ENTRA_REDIRECT_URI}"
+        f"&redirect_uri={redirect_uri}"
         f"&response_mode=query"
         f"&scope=openid profile email User.Read"
     )
@@ -168,23 +199,25 @@ class EntraCallbackRequest(BaseModel):
 @router.post("/login/entra/callback", response_model=Token)
 async def entra_login_callback(
     *,
+    request: Request,
     db: Session = Depends(deps.get_db),
     callback_in: EntraCallbackRequest
 ) -> Any:
     """
     Exchange authorization code for access token and login/provision user.
     """
-    if not settings.ENTRA_CLIENT_ID or not settings.ENTRA_CLIENT_SECRET:
+    client_id, client_secret, tenant_id, redirect_uri = _get_entra_config(db, request)
+
+    if not client_id or not client_secret:
         raise HTTPException(status_code=400, detail="EntraID is not configured")
         
-    tenant = settings.ENTRA_TENANT_ID
-    token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     
     data = {
-        "client_id": settings.ENTRA_CLIENT_ID,
-        "client_secret": settings.ENTRA_CLIENT_SECRET,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "code": callback_in.code,
-        "redirect_uri": settings.ENTRA_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
     }
     

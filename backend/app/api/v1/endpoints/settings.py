@@ -34,8 +34,12 @@ DEFAULT_KEYS = {
     "AZURE_OPENAI_DEPLOYMENT_NAME": "",
     "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME": "",
     "CUSTOM_CATEGORIES": "[]",
+    "ENTRA_CLIENT_ID": "",
+    "ENTRA_CLIENT_SECRET": "",
+    "ENTRA_TENANT_ID": "common",
+    "ENTRA_REDIRECT_URI": "",
 }
-SECRETS = ["OPENAI_API_KEY"]
+SECRETS = ["OPENAI_API_KEY", "ENTRA_CLIENT_SECRET"]
 
 def _ensure_defaults(db: Session) -> None:
     for key, default_val in DEFAULT_KEYS.items():
@@ -77,6 +81,10 @@ def update_settings(
     for key, value in update_req.settings.items():
         setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
         if setting:
+            if setting.is_secret and value and "****" in value:
+                # Do not overwrite actual secret with masked representation
+                updated.append(setting)
+                continue
             setting.value = value
             updated.append(setting)
             db.add(setting)
@@ -88,7 +96,6 @@ def update_settings(
             db.add(new_setting)
             updated.append(new_setting)
     
-    db.commit()
     db.commit()
     return updated
 
