@@ -16,11 +16,13 @@ const Navbar: React.FC<NavbarProps> = ({ darkMode, setDarkMode }) => {
 
     const navLinks = [
         { path: '/snippets', label: 'Snippet Library' },
+        { path: '/knowledge', label: 'Knowledge Explorer' },
         { path: '/generator', label: 'AI Generator' },
         { path: '/editor', label: 'Editor' },
         { path: '/projects', label: 'Projects' },
         { path: '/users', label: 'Users' },
     ];
+
 
     const isActive = (path: string) => location.pathname === path;
 

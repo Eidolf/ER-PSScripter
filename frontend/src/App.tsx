@@ -11,8 +11,10 @@ import LoginCallback from './pages/LoginCallback';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Users from './pages/Users';
+import KnowledgeExplorer from './pages/KnowledgeExplorer';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import './App.css';
+
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -53,7 +55,9 @@ function Layout() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/snippets" element={<ProtectedRoute><SnippetLibrary /></ProtectedRoute>} />
+          <Route path="/knowledge" element={<ProtectedRoute><KnowledgeExplorer /></ProtectedRoute>} />
           <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
+
           <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
           <Route path="/generator" element={<ProtectedRoute><Generator /></ProtectedRoute>} />

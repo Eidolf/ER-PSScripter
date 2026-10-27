@@ -94,8 +94,70 @@
         "updated_at": "DateTime"
       },
       "relationships": []
+    },
+    "KnowledgeEntity": {
+      "file": "backend/app/models/knowledge.py",
+      "fields": {
+        "id": "Integer",
+        "canonical_name": "String",
+        "category": "String",
+        "description": "Text",
+        "tags": "JSON",
+        "source_id": "Integer",
+        "source_url": "String",
+        "source_type": "String",
+        "ps_edition": "String",
+        "min_ps_version": "String",
+        "module_name": "String",
+        "trust_level": "Float",
+        "confidence_score": "Float",
+        "structured_details": "JSON",
+        "embedding": "Vector(1536)",
+        "content_hash": "String",
+        "date_indexed": "DateTime",
+        "date_updated": "DateTime"
+      },
+      "relationships": [
+        "KnowledgeSource",
+        "KnowledgeRelation"
+      ]
+    },
+    "KnowledgeSource": {
+      "file": "backend/app/models/knowledge.py",
+      "fields": {
+        "id": "Integer",
+        "name": "String",
+        "source_type": "String",
+        "url": "String",
+        "trust_level": "Float",
+        "is_active": "Boolean",
+        "auto_refresh": "Boolean",
+        "refresh_frequency_hours": "Integer",
+        "last_crawled_at": "DateTime",
+        "created_at": "DateTime",
+        "updated_at": "DateTime"
+      },
+      "relationships": [
+        "KnowledgeEntity"
+      ]
+    },
+    "KnowledgeRelation": {
+      "file": "backend/app/models/knowledge.py",
+      "fields": {
+        "id": "Integer",
+        "from_entity_id": "Integer",
+        "to_entity_id": "Integer",
+        "relation_type": "String",
+        "description": "String",
+        "confidence": "Float",
+        "created_at": "DateTime"
+      },
+      "relationships": [
+        "KnowledgeEntity"
+      ]
     }
   },
+
   "services": {
     "AIGeneratorService": {
       "file": "backend/app/services/ai_generator.py",

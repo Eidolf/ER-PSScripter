@@ -6,9 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.models.setting import SystemSetting
 from app.models.snippet import Snippet
+from app.schemas.knowledge import KnowledgeSearchResult
 from app.services.embedding_service import embedding_service
+from app.services.knowledge_retrieval import knowledge_retrieval_service
+from app.services.knowledge_validator import powershell_validator
 
 logger = logging.getLogger(__name__)
+
 
 class AIService:
     # Remove __init__ client setup, moving to dynamic setup per request
@@ -68,11 +72,15 @@ class AIService:
         
         return client, model
 
-    def _construct_system_prompt(self, context_snippets: list[Snippet]) -> str:
+    def _construct_system_prompt(
+        self,
+        context_snippets: list[Snippet],
+        knowledge_results: list[KnowledgeSearchResult] | None = None
+    ) -> str:
         prompt = (
             "You are an expert PowerShell Scripting Assistant (Senior DevOps Engineer).\n"
             "Your ONLY goal is to generate high-quality, production-ready PowerShell code "
-            "that adheres to strict industry standards.\n"
+            "that adheres strictly to PowerShell best practices and authoritative Microsoft guidance.\n"
             "\n"
             "### STRICT RULES (Must Follow):\n"
             "1. **Modern PowerShell Only:** Use PowerShell Core (7+) syntax where possible, "
@@ -86,15 +94,32 @@ class AIService:
             "3. **Robust Error Handling:**\n"
             "   - Use `try/catch` blocks for potentially failing commands.\n"
             "   - Use `Write-Error`, `Write-Warning`, and `Write-Verbose` appropriately.\n"
-            "4. **Output:**\n"
+            "4. **Anti-Hallucination & Authoritative Knowledge:**\n"
+            "   - Do NOT invent non-existent cmdlets, parameters, or module capabilities.\n"
+            "   - Give highest precedence to authoritative knowledge entities provided below.\n"
+            "5. **Output:**\n"
             "   - ONLY valid PowerShell code.\n"
             "   - Provide a top-level comment block `<# ... #>` explaining the script.\n"
             "   - No conversational text before or after the code block.\n"
-            "5. **Formatting:**\n"
+            "6. **Formatting:**\n"
             "   - Indent with 4 spaces.\n"
             "   - Wrap code in ```powershell markdown blocks.\n"
             "\n"
         )
+
+        if knowledge_results:
+            prompt += "--- AUTHORITATIVE POWERSHELL KNOWLEDGE (SOURCE OF TRUTH) ---\n"
+            for kr in knowledge_results:
+                e = kr.entity
+                prompt += f"### Concept/Cmdlet: {e.canonical_name} (Category: {e.category}, Trust: {e.trust_level})\n"
+                if e.module_name:
+                    prompt += f"Module: {e.module_name}\n"
+                if e.description:
+                    prompt += f"Description: {e.description}\n"
+                if e.structured_details:
+                    prompt += f"Technical Specs: {e.structured_details}\n"
+                prompt += "\n"
+            prompt += "--- END AUTHORITATIVE KNOWLEDGE ---\n\n"
 
         if context_snippets:
             prompt += "--- EXISTING SNIPPETS (CONTEXT) ---\n"
@@ -103,6 +128,7 @@ class AIService:
                 prompt += f"Description: {snippet.description}\n"
                 prompt += f"Content:\n{snippet.content}\n\n"
             prompt += "--- END SNIPPETS ---\n\n"
+
         
         prompt += (
             "### NEGATIVE CONSTRAINTS (Forbidden):\n"
@@ -182,10 +208,19 @@ class AIService:
                         rag_snippets.append(s.name)
                         logger.info(f"RAG: Added snippet '{s.name}' to context.")
 
+            # Retrieve Authoritative PowerShell Knowledge
+            knowledge_results = []
+            try:
+                knowledge_results = await knowledge_retrieval_service.retrieve_knowledge_for_prompt(
+                    db=db,
+                    prompt=user_prompt,
+                    limit=6
+                )
+                logger.info(f"Knowledge Retrieval: Found {len(knowledge_results)} verified knowledge concepts.")
             except Exception as e:
-                logger.warning(f"RAG Retrieval failed: {e}")
+                logger.warning(f"Knowledge Retrieval failed: {e}")
 
-            system_prompt = self._construct_system_prompt(context_snippets)
+            system_prompt = self._construct_system_prompt(context_snippets, knowledge_results)
             
             # Use await because client is AsyncOpenAI
             response = await client.chat.completions.create(
@@ -209,25 +244,17 @@ class AIService:
             # Extract Code and Explanation using Regex
             import re
             
-            # Pattern to find Markdown code blocks, specifically powershell or generic
-            # flags=re.DOTALL allows dot to match newlines
             match = re.search(r"```(?:powershell)?\s*(.*?)\s*```", content, re.DOTALL)
             
             explanation = ""
             if match:
                 code_content = match.group(1).strip()
-                # Remove the code block from the content to get explanation
-                # We replace the whole block with empty string or a placeholder
                 explanation_text = content.replace(match.group(0), "").strip()
                 explanation = explanation_text
                 content = code_content
-            else:
-                # Fallback: If no code fence, assume it might be raw code if it has specific keywords
-                # But safer to just leave it as is, or if strict mode failed.
-                # Given our prompt, we treat it as code but warn? 
-                # Actually, the user says "outside of these signs is explanation".
-                # If no signs, it's ambiguous. But we can leave 'content' as is and 'explanation' empty.
-                pass
+
+            # Validation against authoritative knowledge entities to eliminate hallucinations
+            validation_report = powershell_validator.validate_script(content, db)
 
             # Extract usage
             usage = {
@@ -238,15 +265,19 @@ class AIService:
             
             rag_info = {
                 "count": len(rag_snippets),
-                "snippets": rag_snippets
+                "snippets": rag_snippets,
+                "knowledge_entities": [kr.entity.canonical_name for kr in knowledge_results],
+                "validation": validation_report
             }
 
             return {
                 "content": content.strip(),
                 "explanation": explanation,
                 "usage": usage,
-                "rag_info": rag_info
+                "rag_info": rag_info,
+                "validation": validation_report
             }
+
 
         except Exception as e:
             logger.error(f"AI Generation Failed: {e}")
