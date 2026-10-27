@@ -186,9 +186,18 @@ async def trigger_source_crawl(
     return await crawler_manager.crawl_source(source_id, db)
 
 
+@router.post("/crawler/start-continuous", response_model=dict[str, Any])
+def start_continuous_crawl() -> Any:
+    """Start continuous 24/7 background ingestion of all active knowledge sources."""
+    from app.services.knowledge_crawler import crawler_manager
+
+    return crawler_manager.start_continuous()
+
+
 @router.post("/crawler/stop", response_model=dict[str, Any])
 def stop_active_crawl() -> Any:
     """Stop/cancel any currently running documentation crawl."""
     from app.services.knowledge_crawler import crawler_manager
 
     return crawler_manager.stop_crawl()
+

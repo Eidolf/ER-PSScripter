@@ -65,10 +65,13 @@ interface KnowledgeSource {
 
 interface CrawlerStatus {
     is_running: boolean;
+    continuous_mode?: boolean;
     source_id: number | null;
     source_name: string | null;
     progress_message: string;
     pages_crawled: number;
+    entities_extracted?: number;
+    queue_size?: number;
 }
 
 export const KnowledgeExplorer: React.FC = () => {
@@ -190,6 +193,22 @@ export const KnowledgeExplorer: React.FC = () => {
         }
     };
 
+    const handleStartContinuousCrawl = async () => {
+        try {
+            setCrawlerStatus((prev) => ({
+                ...prev,
+                is_running: true,
+                continuous_mode: true,
+                progress_message: 'Starting 24/7 background crawler...',
+            }));
+            await axios.post('/api/v1/knowledge/crawler/start-continuous', {}, { headers });
+            const res = await axios.get('/api/v1/knowledge/crawler/status', { headers });
+            setCrawlerStatus(res.data);
+        } catch (err) {
+            console.error('Failed to start continuous crawl:', err);
+        }
+    };
+
     const handleStopCrawl = async () => {
         try {
             await axios.post('/api/v1/knowledge/crawler/stop', {}, { headers });
@@ -302,28 +321,48 @@ export const KnowledgeExplorer: React.FC = () => {
             </div>
 
             {/* Live Crawler Status Bar */}
-            <div className={`p-4 rounded-xl border mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 ${
+            <div className={`p-4 rounded-xl border mb-6 flex flex-col md:flex-row justify-between items-center gap-4 ${
                 crawlerStatus.is_running
                     ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
                     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
             }`}>
-                <div className="flex items-center gap-3">
-                    <span className={`w-3 h-3 rounded-full ${crawlerStatus.is_running ? 'bg-amber-500 animate-ping' : 'bg-green-500'}`} />
-                    <span className="font-semibold text-sm">
-                        Crawler Status: {crawlerStatus.is_running ? `CRAWLING (${crawlerStatus.source_name || 'Active'})` : 'IDLE'}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${crawlerStatus.is_running ? 'bg-amber-500 animate-ping' : 'bg-green-500'}`} />
+                        <span className="font-semibold text-sm">
+                            {crawlerStatus.is_running
+                                ? crawlerStatus.continuous_mode
+                                    ? '24/7 CRAWLER ACTIVE'
+                                    : `CRAWLING (${crawlerStatus.source_name || 'Active'})`
+                                : 'CRAWLER IDLE'}
+                        </span>
+                    </div>
+                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/50 px-2.5 py-1 rounded-md">
                         {crawlerStatus.progress_message}
                     </span>
+                    {crawlerStatus.entities_extracted !== undefined && crawlerStatus.entities_extracted > 0 && (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            +{crawlerStatus.entities_extracted} entities extracted
+                        </span>
+                    )}
                 </div>
-                {crawlerStatus.is_running && (
-                    <button
-                        onClick={handleStopCrawl}
-                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded shadow transition"
-                    >
-                        Stop / Cancel Crawl
-                    </button>
-                )}
+                <div className="flex items-center gap-2">
+                    {!crawlerStatus.is_running ? (
+                        <button
+                            onClick={handleStartContinuousCrawl}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded shadow transition flex items-center gap-1.5"
+                        >
+                            <span>▶</span> Enable 24/7 Background Crawler
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleStopCrawl}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded shadow transition flex items-center gap-1.5"
+                        >
+                            <span>⏹</span> Stop Crawler
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Navigation Tabs */}
