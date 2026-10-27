@@ -141,7 +141,8 @@ export const KnowledgeExplorer: React.FC = () => {
 
     // Live status polling when crawling is in progress
     useEffect(() => {
-        let interval: NodeJS.Timeout | null = null;
+        let interval: ReturnType<typeof setInterval> | null = null;
+
         if (crawlerStatus.is_running) {
             interval = setInterval(async () => {
                 try {
