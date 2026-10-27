@@ -96,43 +96,57 @@ class KnowledgeCrawlerManager:
         if self.is_running:
             self._stop_requested = True
             self.continuous_mode = False
-            self.progress_message = "Stopping crawler gracefully..."
-            return {"status": "stopping", "message": "Cancellation request received."}
+            # Cancel active background task if running so it aborts sleep/httpx immediately
+            if self._background_task and not self._background_task.done():
+                self._background_task.cancel()
+            self.is_running = False
+            self.progress_message = "Crawler stopped."
+            self.current_url = None
+            return {"status": "stopped", "message": "Crawler stopped."}
+        self.progress_message = "Idle"
         return {"status": "idle", "message": "No active crawler to stop."}
 
     async def run_continuous_daemon(self) -> None:
         """24/7 background worker loop that periodically inspects registered sources."""
         logger.info("PowerShell Knowledge 24/7 Crawler daemon started.")
-        while self.continuous_mode and not self._stop_requested:
-            try:
-                db: Session = SessionLocal()
+        try:
+            while self.continuous_mode and not self._stop_requested:
                 try:
-                    sources = (
-                        db.query(KnowledgeSource)
-                        .filter(KnowledgeSource.is_active == True)  # noqa: E712
-                        .order_by(KnowledgeSource.last_crawled_at.asc().nullsfirst())
-                        .all()
-                    )
-                    for src in sources:
-                        if not self.continuous_mode or self._stop_requested:
-                            break
-                        if src.id is not None:
-                            # Crawl each active source with depth traversal
-                            await self._execute_crawl(int(src.id), db, max_depth=2, max_pages=30)
-                        # Polite throttle pause between sources
-                        await asyncio.sleep(5.0)
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.error(f"Error in continuous crawl loop: {e}", exc_info=True)
-                await asyncio.sleep(10.0)
+                    db: Session = SessionLocal()
+                    try:
+                        sources = (
+                            db.query(KnowledgeSource)
+                            .filter(KnowledgeSource.is_active == True)  # noqa: E712
+                            .order_by(KnowledgeSource.last_crawled_at.asc().nullsfirst())
+                            .all()
+                        )
+                        for src in sources:
+                            if not self.continuous_mode or self._stop_requested:
+                                break
+                            if src.id is not None:
+                                await self._execute_crawl(int(src.id), db, max_depth=2, max_pages=30)
+                            await asyncio.sleep(5.0)
+                    finally:
+                        db.close()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in continuous crawl loop: {e}", exc_info=True)
+                    await asyncio.sleep(10.0)
 
-            # Sleep between passes if no sources need urgent refresh
-            await asyncio.sleep(30.0)
-
-        self.continuous_mode = False
-        self.is_running = False
-        self.progress_message = "Continuous crawl stopped."
+                # Sleep between passes if no sources need urgent refresh
+                for _ in range(30):
+                    if not self.continuous_mode or self._stop_requested:
+                        break
+                    await asyncio.sleep(1.0)
+        finally:
+            self.continuous_mode = False
+            self.is_running = False
+            self.progress_message = "Crawler stopped."
+            self.current_source_id = None
+            self.current_source_name = None
+            self.current_url = None
+            self._stop_requested = False
 
     def start_continuous(self) -> dict[str, Any]:
         """Start or enable continuous 24/7 background ingestion."""
@@ -140,21 +154,61 @@ class KnowledgeCrawlerManager:
             return {"status": "already_running", "message": "Continuous 24/7 crawler is already active."}
         self.continuous_mode = True
         self._stop_requested = False
-        if not self.is_running:
-            self.is_running = True
-            self._background_task = asyncio.create_task(self.run_continuous_daemon())
+        self.is_running = True
+        self.progress_message = "24/7 background crawler started."
+        self._background_task = asyncio.create_task(self.run_continuous_daemon())
         return {"status": "started", "message": "24/7 continuous background crawler started."}
+
+    def start_single_crawl(self, source_id: int, max_depth: int = 2, max_pages: int = 25) -> dict[str, Any]:
+        """Start on-demand crawl as a cancellable background task."""
+        if self.is_running:
+            return {"status": "busy", "message": f"Crawler is already active on '{self.current_source_name}'."}
+
+        self.is_running = True
+        self.continuous_mode = False
+        self._stop_requested = False
+        self.progress_message = "Starting crawl..."
+
+        async def _runner() -> None:
+            db: Session = SessionLocal()
+            try:
+                await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
+            except asyncio.CancelledError:
+                self.progress_message = "Crawler stopped."
+            except Exception as e:
+                logger.error(f"Error during crawl of source {source_id}: {e}", exc_info=True)
+                self.progress_message = f"Error: {e}"
+            finally:
+                db.close()
+                self.is_running = False
+                self.current_source_id = None
+                self.current_source_name = None
+                self.current_url = None
+                self._stop_requested = False
+
+        self._background_task = asyncio.create_task(_runner())
+        return {"status": "started", "message": "Crawl job started in background."}
 
     async def crawl_source(
         self, source_id: int, db: Session, max_depth: int = 2, max_pages: int = 25
     ) -> dict[str, Any]:
-        """Entry point for manual trigger of a single knowledge source."""
+        """Synchronous coroutine runner for a single knowledge source."""
         if self.is_running and not self.continuous_mode:
             return {"status": "busy", "message": f"Crawler is already active on '{self.current_source_name}'."}
 
         self.is_running = True
         self._stop_requested = False
-        return await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
+        try:
+            return await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
+        finally:
+            if not self.continuous_mode:
+                self.is_running = False
+                self.current_source_id = None
+                self.current_source_name = None
+                self.current_url = None
+                self._stop_requested = False
+
+
 
     async def _execute_crawl(self, source_id: int, db: Session, max_depth: int, max_pages: int) -> dict[str, Any]:
         source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
@@ -250,11 +304,14 @@ class KnowledgeCrawlerManager:
 
         source.last_crawled_at = datetime.datetime.utcnow()
         db.commit()
-        self.progress_message = (
-            f"Done. Processed {self.pages_crawled} page(s), extracted {self.entities_extracted} entity/cmdlet(s)."
-        )
+        if self._stop_requested:
+            self.progress_message = "Crawler stopped."
+        else:
+            self.progress_message = (
+                f"Done. Processed {self.pages_crawled} page(s), extracted {self.entities_extracted} entity/cmdlet(s)."
+            )
         return {
-            "status": "success",
+            "status": "cancelled" if self._stop_requested else "success",
             "pages_crawled": self.pages_crawled,
             "entities_extracted": self.entities_extracted,
         }

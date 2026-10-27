@@ -43,10 +43,12 @@ def calculate_next_version(current_version, release_type):
     # Logic: Reset patch if Year/Month changes, else increment patch
     if year != curr_year or month != curr_month:
         new_patch = 1
+    elif curr_suffix:
+        # If transitioning from a pre-release or dev version (e.g. 2026.10.4-dev -> 2026.10.4),
+        # keep the current patch number so stable does not skip a version
+        new_patch = curr_patch
     else:
-        # If we are just bumping dev or stable on same month, increment patch
-        # Note: If previous was nightly/beta, we generally keep the patch or increment?
-        # Standard logic: same month -> increment patch
+        # Standard release: increment patch
         new_patch = curr_patch + 1
 
     base_version = f"{year}.{month}.{new_patch}"

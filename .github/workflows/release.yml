@@ -100,10 +100,11 @@ jobs:
 
       # --- Post-Release Dev Bump ---
       - name: Bump to Dev
-        if: inputs.release_type != 'nightly'
+        if: inputs.release_type == 'beta'
         run: |
-          # Bump to next dev version immediately after a beta/stable release
+          # Bump to dev version only after beta releases if needed
           NEXT_DEV=$(python3 version_manager.py --release-type dev --write)
           git add VERSION
           git commit -m "Bump to dev version $NEXT_DEV [skip ci]"
           git push
+

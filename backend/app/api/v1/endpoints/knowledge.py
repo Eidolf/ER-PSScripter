@@ -176,14 +176,14 @@ def get_crawler_status() -> Any:
 
 
 @router.post("/sources/{source_id}/crawl", response_model=dict[str, Any])
-async def trigger_source_crawl(
+def trigger_source_crawl(
     source_id: int,
-    db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Trigger an on-demand crawl on a specific knowledge source."""
+    """Trigger an on-demand crawl on a specific knowledge source in the background."""
     from app.services.knowledge_crawler import crawler_manager
 
-    return await crawler_manager.crawl_source(source_id, db)
+    return crawler_manager.start_single_crawl(source_id)
+
 
 
 @router.post("/crawler/start-continuous", response_model=dict[str, Any])
