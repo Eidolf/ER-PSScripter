@@ -1,9 +1,13 @@
 import datetime
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, relationship
 
 from app.db.base_class import Base
+
+if TYPE_CHECKING:
+    from app.models.snippet import Snippet
 
 
 class SnippetVersion(Base):
@@ -16,5 +20,5 @@ class SnippetVersion(Base):
     parent_version_id = Column(Integer, ForeignKey("snippetversion.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    snippet = relationship("Snippet", back_populates="versions")
-    parent = relationship("SnippetVersion", remote_side=[id], backref="children")
+    snippet: Mapped[Optional["Snippet"]] = relationship("Snippet", back_populates="versions")
+    parent: Mapped[Optional["SnippetVersion"]] = relationship("SnippetVersion", remote_side=[id], backref="children")

@@ -9,9 +9,10 @@ from app.schemas.user import UserCreate
 
 logger = logging.getLogger(__name__)
 
+
 def init_db(db: Session) -> None:
     # Tables are created by Alembic, so we just seed data here
-    
+
     # Check if ANY user exists (to avoid re-creating default admin if customer created their own)
     first_user = db.query(User).first()
     if not first_user:

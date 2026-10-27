@@ -88,9 +88,9 @@ def update_user(
     user_data = jsonable_encoder(user)
     update_data = user_in.dict(exclude_unset=True)
     if update_data.get("password"):
-         hashed_password = get_password_hash(update_data["password"])
-         del update_data["password"]
-         update_data["hashed_password"] = hashed_password
+        hashed_password = get_password_hash(update_data["password"])
+        del update_data["password"]
+        update_data["hashed_password"] = hashed_password
 
     for field in user_data:
         if field in update_data:
@@ -99,6 +99,7 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
+
 
 @router.delete("/{user_id}", response_model=UserSchema)
 def delete_user(
@@ -117,11 +118,11 @@ def delete_user(
             detail="The user with this id does not exist in the system",
         )
     if user.id == current_user.id:
-         raise HTTPException(
+        raise HTTPException(
             status_code=400,
             detail="You cannot delete your own user",
         )
-         
+
     db.delete(user)
     db.commit()
     return user
@@ -138,32 +139,26 @@ def setup_mfa(
     """
     if current_user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is already enabled")
-        
+
     # Generate secret if not already set, or generate a new one
     secret = pyotp.random_base32()
     current_user.mfa_secret = secret
     db.add(current_user)
     db.commit()
-    
-    otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(
-        name=current_user.email, issuer_name="ER-PSScripter"
-    )
-    
+
+    otpauth_url = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user.email, issuer_name="ER-PSScripter")
+
     # Generate QR Code image as base64
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(otpauth_url)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
-    
+
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     qr_code_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    
-    return {
-        "secret": secret,
-        "otpauth_url": otpauth_url,
-        "qr_code_base64": f"data:image/png;base64,{qr_code_base64}"
-    }
+
+    return {"secret": secret, "otpauth_url": otpauth_url, "qr_code_base64": f"data:image/png;base64,{qr_code_base64}"}
 
 
 @router.post("/mfa/enable", response_model=UserSchema)
@@ -171,7 +166,7 @@ def enable_mfa(
     *,
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user),
-    enable_in: MfaEnableRequest
+    enable_in: MfaEnableRequest,
 ) -> Any:
     """
     Verify TOTP code and enable MFA.
@@ -180,11 +175,11 @@ def enable_mfa(
         raise HTTPException(status_code=400, detail="MFA is already enabled")
     if not current_user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA has not been set up yet")
-        
+
     totp = pyotp.TOTP(current_user.mfa_secret)
     if not totp.verify(enable_in.code):
         raise HTTPException(status_code=400, detail="Incorrect code. MFA could not be enabled.")
-        
+
     current_user.mfa_enabled = True
     db.add(current_user)
     db.commit()
@@ -203,7 +198,7 @@ def disable_mfa(
     """
     if not current_user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is already disabled")
-        
+
     current_user.mfa_enabled = False
     current_user.mfa_secret = None
     db.add(current_user)

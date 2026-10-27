@@ -26,33 +26,29 @@ class AIService:
     def _init_client(self, config: dict[str, Any]) -> tuple[Any, Any]:
         provider = config.get("LLM_PROVIDER", "openai")
         api_key = config.get("OPENAI_API_KEY", "")
-        
+
         # Support for local LLMs (e.g., Ollama) which might not need an API Key
         base_url = config.get("OPENAI_BASE_URL") or None
-        
+
         # If API key is empty but we have a base_url, use a dummy key
         if (not api_key or api_key == "sk-placeholder") and base_url:
             api_key = "local-no-key"
 
         # If still no API key and no base_url (or provider requires it), then fail
         if not api_key or api_key == "sk-placeholder":
-             # Return None to signal config error
-             return None, None
+            # Return None to signal config error
+            return None, None
 
         client: Any = None
         if provider == "azure":
             endpoint = config.get("AZURE_OPENAI_ENDPOINT")
             deployment = config.get("AZURE_OPENAI_DEPLOYMENT_NAME")
             api_version = config.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-            
+
             if not endpoint or not deployment:
                 raise ValueError("Azure configuration missing (Endpoint/Deployment)")
 
-            client = openai.AsyncAzureOpenAI(
-                api_key=api_key,
-                api_version=api_version,
-                azure_endpoint=endpoint
-            )
+            client = openai.AsyncAzureOpenAI(api_key=api_key, api_version=api_version, azure_endpoint=endpoint)
             model = deployment
         else:
             if provider == "local_builtin":
@@ -60,22 +56,17 @@ class AIService:
                 base_url = "http://ollama:11434/v1"
                 # Default to a small/fast model if none specified
                 model = config.get("OPENAI_MODEL") or "llama3"
-                api_key = "local-builtin" # Dummy key
+                api_key = "local-builtin"  # Dummy key
             else:
-                base_url = config.get("OPENAI_BASE_URL") or None # Empty string -> None
+                base_url = config.get("OPENAI_BASE_URL") or None  # Empty string -> None
                 model = config.get("OPENAI_MODEL", "gpt-4o")
-            
-            client = openai.AsyncOpenAI(
-                api_key=api_key,
-                base_url=base_url
-            )
-        
+
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
+
         return client, model
 
     def _construct_system_prompt(
-        self,
-        context_snippets: list[Snippet],
-        knowledge_results: list[KnowledgeSearchResult] | None = None
+        self, context_snippets: list[Snippet], knowledge_results: list[KnowledgeSearchResult] | None = None
     ) -> str:
         prompt = (
             "You are an expert PowerShell Scripting Assistant (Senior DevOps Engineer).\n"
@@ -129,7 +120,6 @@ class AIService:
                 prompt += f"Content:\n{snippet.content}\n\n"
             prompt += "--- END SNIPPETS ---\n\n"
 
-        
         prompt += (
             "### NEGATIVE CONSTRAINTS (Forbidden):\n"
             "1. DO NOT suggest Python, Bash, or Batch alternatives.\n"
@@ -160,42 +150,42 @@ class AIService:
         return prompt
 
     def generate_script(self, user_prompt: str, context_snippets: list[Snippet]) -> str:
-        # We need a DB session to fetch settings. 
+        # We need a DB session to fetch settings.
         # Ideally, we should pass 'db' from the endpoint, but to avoid changing signature too much
         # we can use SessionLocal(), but better to refactor signature if possible.
         # Let's inspect call site... It's called from endpoint where we have 'db'.
-        # I'll update generator using this service to pass 'db'. 
-        
+        # I'll update generator using this service to pass 'db'.
+
         # NOTE: Since I am overwriting the file, I will add the db argument to generate_script
         return ""
-        
+
     async def generate_script_with_db(
         self, user_prompt: str, context_snippets: list[Snippet], db: Session
     ) -> dict[str, Any]:
         try:
             config = self._get_config(db)
             client, model = self._init_client(config)
-            
+
             # RAG Logic: Retrieve similar snippets from "Memory"
             rag_snippets = []
             try:
                 # Generate embedding for the user prompt
                 query_embedding = await embedding_service.generate_embedding(user_prompt, db)
-                
+
                 # Perform vector search using synchronous SQLAlchemy
                 from sqlalchemy import select
-                
+
                 # Retrieve top 3 snippets with distance < 0.4 (Cosine Distance)
                 # Lower distance = more similar
                 stmt = select(Snippet).order_by(Snippet.embedding.cosine_distance(query_embedding)).limit(3)
                 relevant_rows = db.execute(stmt).scalars().all()
-                
+
                 # Filter by threshold locally if not doing it in DB (pgvector usually sorts, but thresholding is good)
                 # Note: pgvector distance is 0..2 for cosine (1 - cosine_similarity)
                 # We interpret "distance" here.
-                
+
                 logger.info(f"RAG: Found {len(relevant_rows)} potentially relevant snippets.")
-                
+
                 # Add unique relevant snippets to context
                 existing_ids = {s.id for s in context_snippets}
                 for s in relevant_rows:
@@ -207,21 +197,21 @@ class AIService:
                         existing_ids.add(s.id)
                         rag_snippets.append(s.name)
                         logger.info(f"RAG: Added snippet '{s.name}' to context.")
+            except Exception as e:
+                logger.warning(f"RAG Retrieval failed: {e}")
 
             # Retrieve Authoritative PowerShell Knowledge
             knowledge_results = []
             try:
                 knowledge_results = await knowledge_retrieval_service.retrieve_knowledge_for_prompt(
-                    db=db,
-                    prompt=user_prompt,
-                    limit=6
+                    db=db, prompt=user_prompt, limit=6
                 )
                 logger.info(f"Knowledge Retrieval: Found {len(knowledge_results)} verified knowledge concepts.")
             except Exception as e:
                 logger.warning(f"Knowledge Retrieval failed: {e}")
 
             system_prompt = self._construct_system_prompt(context_snippets, knowledge_results)
-            
+
             # Use await because client is AsyncOpenAI
             response = await client.chat.completions.create(
                 model=model,
@@ -232,20 +222,20 @@ class AIService:
                         "content": (
                             f"{user_prompt}\n\n"
                             "[SYSTEM INSTRUCTION: You MUST generate valid PowerShell code for this request.]"
-                        )
-                    }
+                        ),
+                    },
                 ],
-                temperature=0.2
+                temperature=0.2,
             )
             content = response.choices[0].message.content
             if not content:
                 return {"content": "# Error: No content generated.", "usage": {}}
-            
+
             # Extract Code and Explanation using Regex
             import re
-            
+
             match = re.search(r"```(?:powershell)?\s*(.*?)\s*```", content, re.DOTALL)
-            
+
             explanation = ""
             if match:
                 code_content = match.group(1).strip()
@@ -260,14 +250,14 @@ class AIService:
             usage = {
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
                 "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                "total_tokens": response.usage.total_tokens if response.usage else 0
+                "total_tokens": response.usage.total_tokens if response.usage else 0,
             }
-            
+
             rag_info = {
                 "count": len(rag_snippets),
                 "snippets": rag_snippets,
                 "knowledge_entities": [kr.entity.canonical_name for kr in knowledge_results],
-                "validation": validation_report
+                "validation": validation_report,
             }
 
             return {
@@ -275,9 +265,8 @@ class AIService:
                 "explanation": explanation,
                 "usage": usage,
                 "rag_info": rag_info,
-                "validation": validation_report
+                "validation": validation_report,
             }
-
 
         except Exception as e:
             logger.error(f"AI Generation Failed: {e}")

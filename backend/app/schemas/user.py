@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, EmailStr
 
 
@@ -44,4 +43,3 @@ class MfaEnableRequest(BaseModel):
 class MfaVerifyRequest(BaseModel):
     mfa_token: str
     code: str
-

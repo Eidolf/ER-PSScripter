@@ -9,6 +9,6 @@ from app.main import app
 print("Registered Routes:")
 for route in app.routes:
     if hasattr(route, "path"):
-        methods = route.methods if hasattr(route, 'methods') else 'N/A'
+        methods = route.methods if hasattr(route, "methods") else "N/A"
         name = getattr(route, "name", "N/A")
         print(f"Path: {route.path} | Name: {name} | Methods: {methods}")

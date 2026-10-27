@@ -39,7 +39,7 @@ class ProjectFolder(BaseModel):
 
 
 class ProjectFile(BaseModel):
-    name: str # snippet name or filename
+    name: str  # snippet name or filename
     snippet_id: int
 
 

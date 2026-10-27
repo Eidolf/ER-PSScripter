@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -8,7 +9,6 @@ from app.models.knowledge import KnowledgeEntity, KnowledgeSource
 from app.schemas.knowledge import (
     KnowledgeEntityCreate,
     KnowledgeEntityResponse,
-    KnowledgeEntityUpdate,
     KnowledgeRelationCreate,
     KnowledgeRelationResponse,
     KnowledgeSearchResult,
@@ -37,10 +37,10 @@ def get_repository_metrics(db: Session = Depends(deps.get_db)) -> Any:
 
 @router.get("/entities", response_model=list[KnowledgeEntityResponse])
 def list_knowledge_entities(
-    category: Optional[str] = Query(None),
-    module_name: Optional[str] = Query(None),
-    source_type: Optional[str] = Query(None),
-    query: Optional[str] = Query(None),
+    category: str | None = Query(None),
+    module_name: str | None = Query(None),
+    source_type: str | None = Query(None),
+    query: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(deps.get_db),
@@ -77,7 +77,7 @@ def create_knowledge_entity(
 
 @router.get("/graph", response_model=dict[str, Any])
 def get_knowledge_graph(
-    center_id: Optional[int] = Query(None),
+    center_id: int | None = Query(None),
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """Retrieve interactive nodes and edges for knowledge graph visualization."""
@@ -116,7 +116,7 @@ def list_knowledge_sources(db: Session = Depends(deps.get_db)) -> Any:
             last_crawled_at=s.last_crawled_at,
             created_at=s.created_at,
             updated_at=s.updated_at,
-            entity_count=cnt
+            entity_count=cnt,
         )
         res.append(item)
     return res
@@ -141,7 +141,7 @@ def create_knowledge_source(
         last_crawled_at=s.last_crawled_at,
         created_at=s.created_at,
         updated_at=s.updated_at,
-        entity_count=0
+        entity_count=0,
     )
 
 

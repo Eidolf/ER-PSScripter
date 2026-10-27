@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.project import Project
     from app.models.snippet_version import SnippetVersion
 
+
 class Snippet(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
@@ -21,13 +22,13 @@ class Snippet(Base):
     tags = Column(JSON, default=list)  # Storing list of strings
     category = Column(String, default="General", index=True)
     source = Column(String, nullable=True)  # File path or URL
-    
+
     # Project integration
     project_id = Column(Integer, ForeignKey("project.id"), nullable=True)
     relative_path = Column(String, nullable=True)  # Path relative to project root, e.g., "utils/helper.ps1"
-    
+
     content_hash = Column(String, index=True, nullable=True)  # SHA256 of content for duplicate detection
-    
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -36,7 +37,7 @@ class Snippet(Base):
         "SnippetVersion",
         back_populates="snippet",
         cascade="all, delete-orphan",
-        order_by="SnippetVersion.version.asc()"
+        order_by="SnippetVersion.version.asc()",
     )
 
     @property

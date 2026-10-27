@@ -1,10 +1,10 @@
 import logging
 import re
-from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.models.knowledge import KnowledgeEntity
-from app.schemas.knowledge import KnowledgeSearchResult
+from app.schemas.knowledge import KnowledgeEntityResponse, KnowledgeSearchResult
 from app.services.embedding_service import embedding_service
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,7 @@ class KnowledgeRetrievalService:
         return list(set(tokens))
 
     async def retrieve_knowledge_for_prompt(
-        self,
-        db: Session,
-        prompt: str,
-        limit: int = 8,
-        min_trust: float = 0.5
+        self, db: Session, prompt: str, limit: int = 8, min_trust: float = 0.5
     ) -> list[KnowledgeSearchResult]:
         results: dict[int, KnowledgeSearchResult] = {}
 
@@ -30,32 +26,47 @@ class KnowledgeRetrievalService:
         tokens = self.extract_powershell_tokens(prompt)
         for token in tokens:
             if "-" in token or "." in token:
-                matches = db.query(KnowledgeEntity).filter(
-                    KnowledgeEntity.canonical_name.ilike(token),
-                    KnowledgeEntity.trust_level >= min_trust
-                ).all()
+                matches = (
+                    db.query(KnowledgeEntity)
+                    .filter(KnowledgeEntity.canonical_name.ilike(token), KnowledgeEntity.trust_level >= min_trust)
+                    .all()
+                )
                 for m in matches:
-                    relevance = 1.0 * m.trust_level
-                    results[m.id] = KnowledgeSearchResult(
-                        entity=m,  # type: ignore
+                    m_id = int(m.id)  # type: ignore[arg-type]
+                    m_trust = float(m.trust_level)  # type: ignore[arg-type]
+                    relevance = 1.0 * m_trust
+                    results[m_id] = KnowledgeSearchResult(
+                        entity=KnowledgeEntityResponse.model_validate(m),
                         relevance_score=relevance,
-                        matched_by="exact"
+                        matched_by="exact",
                     )
 
         # 2. Keyword Search across canonical name & description
-        words = [w for w in re.findall(r"\w{3,}", prompt) if w.lower() not in {"the", "and", "for", "with", "script", "powershell"}]
+        words = [
+            w
+            for w in re.findall(r"\w{3,}", prompt)
+            if w.lower() not in {"the", "and", "for", "with", "script", "powershell"}
+        ]
         for word in words[:5]:
-            matches = db.query(KnowledgeEntity).filter(
-                (KnowledgeEntity.canonical_name.ilike(f"%{word}%")) | (KnowledgeEntity.description.ilike(f"%{word}%")),
-                KnowledgeEntity.trust_level >= min_trust
-            ).limit(limit).all()
+            matches = (
+                db.query(KnowledgeEntity)
+                .filter(
+                    (KnowledgeEntity.canonical_name.ilike(f"%{word}%"))
+                    | (KnowledgeEntity.description.ilike(f"%{word}%")),
+                    KnowledgeEntity.trust_level >= min_trust,
+                )
+                .limit(limit)
+                .all()
+            )
             for m in matches:
-                if m.id not in results:
-                    score = 0.7 * m.trust_level
-                    results[m.id] = KnowledgeSearchResult(
-                        entity=m,  # type: ignore
+                m_id = int(m.id)  # type: ignore[arg-type]
+                if m_id not in results:
+                    m_trust = float(m.trust_level)  # type: ignore[arg-type]
+                    score = 0.7 * m_trust
+                    results[m_id] = KnowledgeSearchResult(
+                        entity=KnowledgeEntityResponse.model_validate(m),
                         relevance_score=score,
-                        matched_by="keyword"
+                        matched_by="keyword",
                     )
 
         # 3. Vector Semantic Search using embedding service if available
@@ -63,26 +74,29 @@ class KnowledgeRetrievalService:
             emb = await embedding_service.generate_embedding(prompt, db)
             if emb:
                 # pgvector cosine distance: embedding <=> emb
-                vector_matches = db.query(
-                    KnowledgeEntity,
-                    KnowledgeEntity.embedding.cosine_distance(emb).label("distance")
-                ).filter(
-                    KnowledgeEntity.embedding.isnot(None),
-                    KnowledgeEntity.trust_level >= min_trust
-                ).order_by("distance").limit(limit).all()
+                vector_matches = (
+                    db.query(KnowledgeEntity, KnowledgeEntity.embedding.cosine_distance(emb).label("distance"))
+                    .filter(KnowledgeEntity.embedding.isnot(None), KnowledgeEntity.trust_level >= min_trust)
+                    .order_by("distance")
+                    .limit(limit)
+                    .all()
+                )
 
                 for m, dist in vector_matches:
-                    sim = max(0.0, 1.0 - (dist if dist is not None else 1.0))
-                    weighted_sim = sim * m.trust_level
-                    if m.id in results:
+                    sim = max(0.0, 1.0 - (float(dist) if dist is not None else 1.0))
+                    m_trust = float(m.trust_level)
+                    weighted_sim = sim * m_trust
+                    m_id = int(m.id)
+                    if m_id in results:
                         # Blend score
-                        results[m.id].relevance_score = max(results[m.id].relevance_score, weighted_sim)
+                        results[m_id].relevance_score = max(results[m_id].relevance_score, weighted_sim)
                     else:
-                        results[m.id] = KnowledgeSearchResult(
-                            entity=m,  # type: ignore
+                        results[m_id] = KnowledgeSearchResult(
+                            entity=KnowledgeEntityResponse.model_validate(m),
                             relevance_score=weighted_sim,
-                            matched_by="vector"
+                            matched_by="vector",
                         )
+
         except Exception as e:
             logger.warning(f"Vector search skipped or failed during knowledge retrieval: {e}")
 

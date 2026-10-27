@@ -6,5 +6,13 @@ from app.models.user import User  # noqa
 from app.models.project import Project  # noqa
 from app.models.knowledge import KnowledgeEntity, KnowledgeSource, KnowledgeRelation  # noqa
 
-__all__ = ["Base", "Snippet", "SnippetVersion", "User", "Project", "KnowledgeEntity", "KnowledgeSource", "KnowledgeRelation"]
-
+__all__ = [
+    "Base",
+    "Snippet",
+    "SnippetVersion",
+    "User",
+    "Project",
+    "KnowledgeEntity",
+    "KnowledgeSource",
+    "KnowledgeRelation",
+]

@@ -19,6 +19,7 @@ class TestConnectionRequest(BaseModel):
     azure_api_version: str | None = None
     model: str | None = None
 
+
 router = APIRouter()
 ai_service = AIService()
 
@@ -41,6 +42,7 @@ DEFAULT_KEYS = {
 }
 SECRETS = ["OPENAI_API_KEY", "ENTRA_CLIENT_SECRET"]
 
+
 def _ensure_defaults(db: Session) -> None:
     for key, default_val in DEFAULT_KEYS.items():
         exists = db.query(SystemSetting).filter(SystemSetting.key == key).first()
@@ -50,30 +52,27 @@ def _ensure_defaults(db: Session) -> None:
             db.add(SystemSetting(key=key, value=default_val, is_secret=is_secret))
     db.commit()
 
+
 @router.get("/", response_model=list[SettingResponse])
-def get_settings(
-    db: Session = Depends(deps.get_db)
-) -> Any:
+def get_settings(db: Session = Depends(deps.get_db)) -> Any:
     """
     Get all system settings.
     """
     _ensure_defaults(db)
     settings = db.query(SystemSetting).all()
-    
+
     # Mask secrets
     for s in settings:
         if s.is_secret and s.value and len(s.value) > 4:
             s.value = f"****{s.value[-4:]}"
         elif s.is_secret and s.value:
             s.value = "****"
-            
+
     return settings
 
+
 @router.post("/", response_model=list[SettingResponse])
-def update_settings(
-    update_req: SettingsUpdateRequest,
-    db: Session = Depends(deps.get_db)
-) -> Any:
+def update_settings(update_req: SettingsUpdateRequest, db: Session = Depends(deps.get_db)) -> Any:
     """
     Update settings.
     """
@@ -95,26 +94,24 @@ def update_settings(
             new_setting = SystemSetting(key=key, value=value, is_secret=is_secret)
             db.add(new_setting)
             updated.append(new_setting)
-    
+
     db.commit()
     return updated
 
+
 @router.post("/test-connection")
-async def test_connection(
-    request: TestConnectionRequest,
-    db: Session = Depends(deps.get_db)
-) -> Any:
+async def test_connection(request: TestConnectionRequest, db: Session = Depends(deps.get_db)) -> Any:
     """
     Test the AI connection with provided settings.
     """
     api_key_to_use = request.api_key
-    
+
     # Check if masked key
     if not api_key_to_use or "****" in api_key_to_use:
         # Retrieve stored key from DB
         stored_setting = db.query(SystemSetting).filter(SystemSetting.key == "OPENAI_API_KEY").first()
         if stored_setting and stored_setting.value:
-             api_key_to_use = stored_setting.value
+            api_key_to_use = stored_setting.value
 
     # Construct a temporary config dict
     config = {
@@ -124,29 +121,28 @@ async def test_connection(
         "AZURE_OPENAI_ENDPOINT": request.azure_endpoint,
         "AZURE_OPENAI_DEPLOYMENT_NAME": request.azure_deployment,
         "AZURE_OPENAI_API_VERSION": request.azure_api_version,
-        "OPENAI_MODEL": request.model or "gpt-3.5-turbo" # Use provided model or fallback
+        "OPENAI_MODEL": request.model or "gpt-3.5-turbo",  # Use provided model or fallback
     }
-    
+
     try:
         # We'll reuse AIService's init_client but need to expose it or refactor.
         # Accessing protected method _init_client is dirty but quick for now.
         client, _ = ai_service._init_client(config)
-        
+
         # Perform a lightweight call. List models is good for OpenAI.
-        # For Azure, list models might differ. 
+        # For Azure, list models might differ.
         # A simple completion is more universal.
-        
+
         import openai
-        
+
         try:
             if isinstance(client, openai.AsyncAzureOpenAI | openai.AsyncOpenAI):
-                
                 # Use the configured model
                 model_to_use = request.model
                 if request.provider == "azure":
                     model_to_use = request.azure_deployment
                 elif not model_to_use:
-                     model_to_use = "gpt-3.5-turbo"
+                    model_to_use = "gpt-3.5-turbo"
 
                 # Just try to generate a tiny string
                 await client.chat.completions.create(
@@ -158,11 +154,11 @@ async def test_connection(
                 # Sync client (fallback if service accidentally returns sync)
                 # But we changed service to Async.
                 pass
-                
+
         except Exception as e:
             return {"success": False, "error": str(e)}
 
         return {"success": True, "message": "Connection successful!"}
-        
+
     except Exception as e:
         return {"success": False, "error": str(e)}

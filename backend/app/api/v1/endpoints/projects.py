@@ -37,11 +37,7 @@ def create_project(
     """
     Create new project.
     """
-    db_project = Project(
-        name=project_in.name,
-        description=project_in.description,
-        user_id=current_user.id
-    )
+    db_project = Project(name=project_in.name, description=project_in.description, user_id=current_user.id)
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
@@ -78,10 +74,10 @@ def update_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     for field, value in project_in.dict(exclude_unset=True).items():
         setattr(project, field, value)
-    
+
     db.commit()
     db.refresh(project)
     return project
@@ -100,7 +96,7 @@ def delete_project(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     db.delete(project)
     db.commit()
     return project
@@ -119,39 +115,39 @@ def get_project_structure(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     # Build tree from snippets
     root = ProjectFolder(name=project.name)
     snippets = db.query(Snippet).filter(Snippet.project_id == project_id).all()
-    
+
     for snippet in snippets:
         if not snippet.relative_path:
-             # Treat as root file if no path
-             root.files.append(ProjectFile(name=snippet.name, snippet_id=snippet.id))
-             continue
+            # Treat as root file if no path
+            root.files.append(ProjectFile(name=snippet.name, snippet_id=snippet.id))
+            continue
 
         # Simple path parsing
         parts = snippet.relative_path.strip("/").split("/")
         current_folder = root
-        
+
         # Traverse/Create folders
-        for part in parts[:-1]: # All but last are folders
+        for part in parts[:-1]:  # All but last are folders
             found = False
             for folder in current_folder.folders:
                 if folder.name == part:
                     current_folder = folder
                     found = True
                     break
-            
+
             if not found:
                 new_folder = ProjectFolder(name=part)
                 current_folder.folders.append(new_folder)
                 current_folder = new_folder
-        
+
         # Add file to last folder
         filename = parts[-1] if parts else snippet.name
         current_folder.files.append(ProjectFile(name=filename, snippet_id=snippet.id))
-            
+
     return root
 
 
@@ -173,22 +169,26 @@ def delete_project_folder(
     # Normalize path to ensure it matches how we store relative_path
     # folder_path "src" -> remove items with relative_path starting with "src/"
     # or equal to "src" (if it's a single file treated as folder, but unlikely here)
-    
+
     # We need to find all snippets that are 'under' this folder.
     # relative_path stores "Folder/Sub/File.ps1"
-    
+
     prefix = folder_path.strip("/")
     if not prefix:
-         raise HTTPException(status_code=400, detail="Cannot delete root via this endpoint")
+        raise HTTPException(status_code=400, detail="Cannot delete root via this endpoint")
 
-    snippets_to_delete = db.query(Snippet).filter(
-        Snippet.project_id == project_id,
-        (Snippet.relative_path.like(f"{prefix}/%")) | (Snippet.relative_path == prefix)
-    ).all()
+    snippets_to_delete = (
+        db.query(Snippet)
+        .filter(
+            Snippet.project_id == project_id,
+            (Snippet.relative_path.like(f"{prefix}/%")) | (Snippet.relative_path == prefix),
+        )
+        .all()
+    )
 
     count = len(snippets_to_delete)
     for snip in snippets_to_delete:
         db.delete(snip)
-    
+
     db.commit()
     return {"message": f"Deleted {count} items under {prefix}"}

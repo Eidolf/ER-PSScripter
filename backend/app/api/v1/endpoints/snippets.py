@@ -18,11 +18,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 analyzer = ScriptAnalyzerService()
 
+
 @router.post("/analyze/upload", response_model=list[SnippetAnalysisResult])
 async def analyze_upload(
     files: list[UploadFile],
     split_functions: bool = Query(False, description="Whether to split script into functions"),
-    db: Session = Depends(deps.get_db)
+    db: Session = Depends(deps.get_db),
 ) -> Any:
     """
     Analyze uploaded files for PowerShell content.
@@ -31,44 +32,42 @@ async def analyze_upload(
     for file in files:
         if not file.filename or not file.filename.lower().endswith(".ps1"):
             continue
-            
+
         content_bytes = await file.read()
         try:
             content = content_bytes.decode("utf-8")
         except UnicodeDecodeError:
             # Fallback for other encodings if needed
             content = content_bytes.decode("latin-1")
-            
+
         extracted = analyzer.analyze_content(content, file.filename or "unknown", split_functions)
         snippets.extend(extracted)
-    
+
     # Fetch existing hashes to mark duplicates
     existing_hashes = {r[0] for r in db.query(Snippet.content_hash).filter(Snippet.content_hash.isnot(None)).all()}
-    
+
     results = []
     for s in snippets:
         res = SnippetAnalysisResult(**s.model_dump())
         if s.content_hash and s.content_hash in existing_hashes:
             res.is_duplicate = True
         results.append(res)
-        
+
     return results
 
+
 @router.post("/analyze", response_model=list[SnippetAnalysisResult])
-def analyze_folder(
-    folder_path: str,
-    db: Session = Depends(deps.get_db)
-) -> Any:
+def analyze_folder(folder_path: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Analyze a folder for PowerShell scripts and return detected snippets.
     Does not save automatically, purely returns found candidates.
     Checks for duplicates based on content hash.
     """
     snippets = analyzer.analyze_folder(folder_path)
-    
+
     # Fetch existing hashes to mark duplicates
     existing_hashes = {r[0] for r in db.query(Snippet.content_hash).filter(Snippet.content_hash.isnot(None)).all()}
-    
+
     results = []
     for s in snippets:
         # Convert to AnalysisResult and flag duplicates
@@ -76,17 +75,16 @@ def analyze_folder(
         if s.content_hash and s.content_hash in existing_hashes:
             res.is_duplicate = True
         results.append(res)
-        
+
     return results
 
+
 @router.get("/tags", response_model=list[str])
-def get_unique_tags(
-    db: Session = Depends(deps.get_db)
-) -> Any:
+def get_unique_tags(db: Session = Depends(deps.get_db)) -> Any:
     """
     Get all unique tags used across snippets.
     """
-    # Fetch all tags. Since tags are stored as JSON array, we might need to fetch all and aggregate in python 
+    # Fetch all tags. Since tags are stored as JSON array, we might need to fetch all and aggregate in python
     # or use specific SQL if supported. For SQLite/JSON, it's safer to fetch and process if dataset is small,
     # or use func.json_each if we want to be fancy but let's stick to simple first.
     snippets = db.query(Snippet.tags).all()
@@ -97,29 +95,23 @@ def get_unique_tags(
                 unique_tags.add(tag)
     return sorted(list(unique_tags))
 
+
 @router.get("/", response_model=list[SnippetResponse])
-def list_snippets(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(deps.get_db)
-) -> Any:
+def list_snippets(skip: int = 0, limit: int = 100, db: Session = Depends(deps.get_db)) -> Any:
     """
     Retrieve all snippets.
     """
     snippets = db.query(Snippet).offset(skip).limit(limit).all()
     return snippets
 
+
 @router.post("/", response_model=SnippetResponse)
-async def create_snippet(
-    *,
-    db: Session = Depends(deps.get_db),
-    snippet_in: SnippetCreate
-) -> Any:
+async def create_snippet(*, db: Session = Depends(deps.get_db), snippet_in: SnippetCreate) -> Any:
     """
     Create a new snippet.
     """
     # Auto-detect PowerShell function
-    if re.search(r'^\s*function\s+[\w-]+\s*\{', snippet_in.content, re.IGNORECASE | re.MULTILINE):
+    if re.search(r"^\s*function\s+[\w-]+\s*\{", snippet_in.content, re.IGNORECASE | re.MULTILINE):
         if snippet_in.tags is None:
             snippet_in.tags = []
         if "#function" not in snippet_in.tags:
@@ -128,7 +120,8 @@ async def create_snippet(
     if not snippet_in.content_hash:
         # Compute if not provided
         import hashlib
-        snippet_in.content_hash = hashlib.sha256(snippet_in.content.encode('utf-8')).hexdigest()
+
+        snippet_in.content_hash = hashlib.sha256(snippet_in.content.encode("utf-8")).hexdigest()
 
     snippet = Snippet(
         name=snippet_in.name,
@@ -139,7 +132,7 @@ async def create_snippet(
         source=snippet_in.source,
         project_id=snippet_in.project_id,
         relative_path=snippet_in.relative_path,
-        content_hash=snippet_in.content_hash
+        content_hash=snippet_in.content_hash,
     )
 
     try:
@@ -164,19 +157,16 @@ async def create_snippet(
         name=snippet.name,
         description=snippet.description,
         content=snippet.content,
-        parent_version_id=None
+        parent_version_id=None,
     )
     db.add(version1)
     db.commit()
 
     return snippet
 
+
 @router.get("/{id}", response_model=SnippetResponse)
-def get_snippet(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int
-) -> Any:
+def get_snippet(*, db: Session = Depends(deps.get_db), id: int) -> Any:
     """
     Get snippet by ID.
     """
@@ -185,26 +175,19 @@ def get_snippet(
         raise HTTPException(status_code=404, detail="Snippet not found")
     return snippet
 
+
 @router.put("/{id}", response_model=SnippetResponse)
-async def update_snippet(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int,
-    snippet_in: SnippetUpdate
-) -> Any:
+async def update_snippet(*, db: Session = Depends(deps.get_db), id: int, snippet_in: SnippetUpdate) -> Any:
     """
     Update a snippet.
     """
     snippet = db.query(Snippet).filter(Snippet.id == id).first()
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-        
+
     # Fetch existing versions
     existing_versions = (
-        db.query(SnippetVersion)
-        .filter(SnippetVersion.snippet_id == id)
-        .order_by(SnippetVersion.version.asc())
-        .all()
+        db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
     )
     if not existing_versions:
         # Create version 1 with the CURRENT database content first
@@ -214,7 +197,7 @@ async def update_snippet(
             name=snippet.name,
             description=snippet.description,
             content=snippet.content,
-            parent_version_id=None
+            parent_version_id=None,
         )
         db.add(v1)
         db.commit()
@@ -228,21 +211,21 @@ async def update_snippet(
         parent_version_id = existing_versions[-1].id
 
     # Calculate new version number
-    new_version_num = max(v.version for v in existing_versions) + 1
+    new_version_num = max((int(v.version) for v in existing_versions if v.version is not None), default=0) + 1
 
     # Auto-detect function in content update
     if snippet_in.content is not None and re.search(
         r"^\s*function\s+[\w-]+\s*\{", snippet_in.content, re.IGNORECASE | re.MULTILINE
     ):
-            # Update tags if provided, else append to existing
-            if snippet_in.tags is not None:
-                 if "#function" not in snippet_in.tags:
-                    snippet_in.tags.append("#function")
-            else:
-                 current_tags = list(snippet.tags) if snippet.tags else []
-                 if "#function" not in current_tags:
-                      current_tags.append("#function")
-                      snippet_in.tags = current_tags
+        # Update tags if provided, else append to existing
+        if snippet_in.tags is not None:
+            if "#function" not in snippet_in.tags:
+                snippet_in.tags.append("#function")
+        else:
+            current_tags = list(snippet.tags) if snippet.tags else []
+            if "#function" not in current_tags:
+                current_tags.append("#function")
+                snippet_in.tags = current_tags
 
     update_data = snippet_in.model_dump(exclude_unset=True)
     update_data.pop("parent_version_id", None)
@@ -265,21 +248,18 @@ async def update_snippet(
         name=snippet_in.name,
         description=snippet_in.description,
         content=snippet_in.content,
-        parent_version_id=parent_version_id
+        parent_version_id=parent_version_id,
     )
     db.add(new_version)
-        
+
     db.add(snippet)
     db.commit()
     db.refresh(snippet)
     return snippet
 
+
 @router.delete("/{id}", response_model=SnippetResponse)
-def delete_snippet(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int
-) -> Any:
+def delete_snippet(*, db: Session = Depends(deps.get_db), id: int) -> Any:
     """
     Delete a snippet.
     """
@@ -290,19 +270,16 @@ def delete_snippet(
     db.commit()
     return snippet
 
+
 @router.post("/{id}/index", response_model=SnippetResponse)
-async def index_snippet(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int
-) -> Any:
+async def index_snippet(*, db: Session = Depends(deps.get_db), id: int) -> Any:
     """
     Manually trigger embedding generation for a snippet.
     """
     snippet = db.query(Snippet).filter(Snippet.id == id).first()
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-        
+
     try:
         text_to_embed = f"{snippet.name}\n{snippet.description or ''}\n{snippet.content}"
         embedding = await embedding_service.generate_embedding(text_to_embed, db)
@@ -313,39 +290,27 @@ async def index_snippet(
     except Exception as e:
         logger.error(f"Failed to generate embedding for snippet {id}: {e}")
         raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}") from e
-        
+
     return snippet
 
 
 @router.get("/{id}/versions", response_model=list[SnippetVersionResponse])
-def get_snippet_versions(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int
-) -> Any:
+def get_snippet_versions(*, db: Session = Depends(deps.get_db), id: int) -> Any:
     """
     Get all versions of a snippet.
     """
     snippet = db.query(Snippet).filter(Snippet.id == id).first()
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-    
+
     versions = (
-        db.query(SnippetVersion)
-        .filter(SnippetVersion.snippet_id == id)
-        .order_by(SnippetVersion.version.asc())
-        .all()
+        db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id).order_by(SnippetVersion.version.asc()).all()
     )
     return versions
 
 
 @router.get("/{id}/versions/{version_id}", response_model=SnippetVersionResponse)
-def get_snippet_version(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int,
-    version_id: int
-) -> Any:
+def get_snippet_version(*, db: Session = Depends(deps.get_db), id: int, version_id: int) -> Any:
     """
     Get a specific version of a snippet.
     """
@@ -356,12 +321,7 @@ def get_snippet_version(
 
 
 @router.delete("/{id}/versions/{version_id}", response_model=SnippetVersionResponse)
-def delete_snippet_version(
-    *,
-    db: Session = Depends(deps.get_db),
-    id: int,
-    version_id: int
-) -> Any:
+def delete_snippet_version(*, db: Session = Depends(deps.get_db), id: int, version_id: int) -> Any:
     """
     Delete a specific version of a snippet.
     If it has children, we re-parent them to keep the tree intact.
@@ -369,14 +329,13 @@ def delete_snippet_version(
     version = db.query(SnippetVersion).filter(SnippetVersion.snippet_id == id, SnippetVersion.id == version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-        
+
     # Re-parent children
     children = db.query(SnippetVersion).filter(SnippetVersion.parent_version_id == version_id).all()
     for child in children:
         child.parent_version_id = version.parent_version_id
         db.add(child)
-        
+
     db.delete(version)
     db.commit()
     return version
-

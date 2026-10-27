@@ -11,11 +11,9 @@ from app.services.ai_service import AIService
 router = APIRouter()
 ai_service = AIService()
 
+
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_script(
-    request: GenerateRequest,
-    db: Session = Depends(deps.get_db)
-) -> Any:
+async def generate_script(request: GenerateRequest, db: Session = Depends(deps.get_db)) -> Any:
     """
     Generate a PowerShell script based on a prompt and optional context snippets.
     """
@@ -27,15 +25,15 @@ async def generate_script(
         #     logger.warning("Some requested snippets were not found.")
 
     result = await ai_service.generate_script_with_db(request.prompt, context_snippets, db)
-    
+
     # Result is now a dict { "content": ..., "usage": ... }
     # Or string if error (though service should ideally return consistent type, let's handle both)
     if isinstance(result, str):
-         return GenerateResponse(content=result)
-         
+        return GenerateResponse(content=result)
+
     return GenerateResponse(
-        content=result["content"], 
+        content=result["content"],
         explanation=result.get("explanation"),
         usage=result["usage"],
-        rag_info=result.get("rag_info", {})
+        rag_info=result.get("rag_info", {}),
     )

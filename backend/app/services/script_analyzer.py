@@ -6,9 +6,10 @@ from app.schemas.snippet import SnippetCreate
 
 # ...
 
+
 class ScriptAnalyzerService:
     def _compute_hash(self, content: str) -> str:
-        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def analyze_folder(self, folder_path: str) -> list[SnippetCreate]:
         snippets: list[SnippetCreate] = []
@@ -33,20 +34,20 @@ class ScriptAnalyzerService:
 
     def _extract_functions(self, content: str, source: str, split_functions: bool = False) -> list[SnippetCreate]:
         found_snippets = []
-        
+
         # Regex to find function definitions start: function Name {
         # We use this to find the starting point, then we use brace counting for the body.
         function_start_pattern = re.compile(r"function\s+([\w-]+)\s*\{", re.IGNORECASE)
-        
+
         matches = list(function_start_pattern.finditer(content))
-        
+
         # IF splitting is disabled OR no functions found, treat as whole file
         if not split_functions or not matches:
             # No functions found, treat entire file as script
             help_info = self._extract_help_info(content, 0)
             description_val = help_info.get("description", "")
             description = description_val if isinstance(description_val, str) else ""
-            
+
             # Append parameters if found distinct from description
             parameters_val = help_info.get("parameters")
             if isinstance(parameters_val, list) and parameters_val:
@@ -56,79 +57,82 @@ class ScriptAnalyzerService:
             tags_val = help_info.get("tags", [])
             tags = tags_val if isinstance(tags_val, list) else []
 
-            found_snippets.append(SnippetCreate(
-                name=source,
-                content=content.strip(),
-                source=source,
-                description=description.strip() or None,
-                tags=sorted(list(set([str(t) for t in tags] + ["script", "auto-discovered"]))),
-                content_hash=self._compute_hash(content.strip())
-            ))
+            found_snippets.append(
+                SnippetCreate(
+                    name=source,
+                    content=content.strip(),
+                    source=source,
+                    description=description.strip() or None,
+                    tags=sorted(list(set([str(t) for t in tags] + ["script", "auto-discovered"]))),
+                    content_hash=self._compute_hash(content.strip()),
+                )
+            )
             return found_snippets
 
         for match in matches:
             func_name = match.group(1)
-            start_index = match.end() - 1 # This is the opening brace '{'
-            
+            start_index = match.end() - 1  # This is the opening brace '{'
+
             # Extract body using brace counting
             end_index = self._find_matching_brace(content, start_index)
-            
+
             if end_index != -1:
                 # We have the full function body including braces
                 # But typically we want the whole definition including "function Name"
                 # So we take from match.start() to end_index + 1
-                full_function_text = content[match.start():end_index+1]
-                
+                full_function_text = content[match.start() : end_index + 1]
+
                 # Look for help immediately before the function
                 help_info = self._extract_help_info(content, match.start())
-                
+
                 description_val = help_info.get("description", "")
                 description = description_val if isinstance(description_val, str) else ""
-                
-                 # Append parameters if found
+
+                # Append parameters if found
                 parameters_val = help_info.get("parameters")
                 if isinstance(parameters_val, list) and parameters_val:
                     params_str = ", ".join([str(p) for p in parameters_val])
                     description += f"\n\nParameters: {params_str}"
-                
+
                 tags_val = help_info.get("tags", [])
                 tags = tags_val if isinstance(tags_val, list) else []
 
-                found_snippets.append(SnippetCreate(
-                    name=func_name,
-                    content=full_function_text,
-                    source=source,
-                    description=description.strip() or None,
-                    tags=sorted(list(set([str(t) for t in tags] + ["function", "auto-discovered"]))),
-                    content_hash=self._compute_hash(full_function_text)
-                ))
+                found_snippets.append(
+                    SnippetCreate(
+                        name=func_name,
+                        content=full_function_text,
+                        source=source,
+                        description=description.strip() or None,
+                        tags=sorted(list(set([str(t) for t in tags] + ["function", "auto-discovered"]))),
+                        content_hash=self._compute_hash(full_function_text),
+                    )
+                )
 
         return found_snippets
-
 
     def _find_matching_brace(self, content: str, start_index: int) -> int:
         """
         Find the index of the closing brace '}' corresponding to the '{' at start_index.
         Returns -1 if not found.
         """
-        if start_index >= len(content) or content[start_index] != '{':
+        if start_index >= len(content) or content[start_index] != "{":
             return -1
 
         balance = 1
         in_single_quote = False
         in_double_quote = False
         escape = False
-        
+
         i = start_index + 1
         while i < len(content):
             char = content[i]
-            
+
             if escape:
                 escape = False
                 i += 1
                 continue
-                
-            if char == '`': # PowerShell escape character
+
+            if char == "`":  # PowerShell escape character
                 escape = True
                 i += 1
                 continue
@@ -137,16 +141,16 @@ class ScriptAnalyzerService:
                 in_single_quote = not in_single_quote
             elif char == '"' and not in_single_quote:
                 in_double_quote = not in_double_quote
-            
+
             if not in_single_quote and not in_double_quote:
-                if char == '{':
+                if char == "{":
                     balance += 1
-                elif char == '}':
+                elif char == "}":
                     balance -= 1
                     if balance == 0:
                         return i
             i += 1
-            
+
         return -1
 
     def _extract_help_info(self, content: str, end_pos: int) -> dict[str, list[str] | str]:
@@ -156,9 +160,9 @@ class ScriptAnalyzerService:
         """
         # Look backwards for the *end* of a block comment: #>
         # We limit the search to avoid scanning the whole file unnecessarily
-        search_limit = max(0, end_pos - 2000) 
+        search_limit = max(0, end_pos - 2000)
         preceding_text = content[search_limit:end_pos].rstrip()
-        
+
         if not preceding_text.endswith("#>"):
             return {}
 
@@ -166,20 +170,17 @@ class ScriptAnalyzerService:
         # We need to find the last occurrence of <# before the #> we just found
         block_end_idx = preceding_text.rfind("#>")
         block_start_idx = preceding_text.rfind("<#", 0, block_end_idx)
-        
+
         if block_start_idx == -1:
             return {}
-            
-        comment_block = preceding_text[block_start_idx+2 : block_end_idx]
-        
+
+        comment_block = preceding_text[block_start_idx + 2 : block_end_idx]
+
         # Parse standard keywords
-        info: dict[str, list[str] | str] = {
-            "tags": [],
-            "parameters": []
-        }
-        
+        info: dict[str, list[str] | str] = {"tags": [], "parameters": []}
+
         # Simple line-by-line parser for keywords
-        lines = comment_block.split('\n')
+        lines = comment_block.split("\n")
         current_section: str | None = None
         current_param_name: str | None = None
         current_text: list[str] = []
@@ -197,7 +198,7 @@ class ScriptAnalyzerService:
         for line in lines:
             line_stripped = line.strip()
             upper_line = line_stripped.upper()
-            
+
             if upper_line.startswith(".SYNOPSIS"):
                 save_section()
                 current_section = "SYNOPSIS"
@@ -221,19 +222,19 @@ class ScriptAnalyzerService:
             else:
                 if current_section in ["SYNOPSIS", "DESCRIPTION"]:
                     current_text.append(line_stripped)
-        
+
         save_section()
-        
+
         # Construct final description
         desc_parts: list[str] = []
         synopsis = info.get("synopsis")
         if isinstance(synopsis, str):
             desc_parts.append(synopsis)
-        
+
         description = info.get("description")
         if isinstance(description, str):
             desc_parts.append(description)
-            
+
         info["description"] = "\n\n".join(desc_parts)
-        
+
         return info

@@ -7,6 +7,7 @@ class GenerateRequest(BaseModel):
     prompt: str
     snippet_ids: list[int] = []
 
+
 class GenerateResponse(BaseModel):
     content: str
     explanation: str | None = None

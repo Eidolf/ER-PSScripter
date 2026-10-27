@@ -1,19 +1,20 @@
 import datetime
-from typing import Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class KnowledgeEntityBase(BaseModel):
     canonical_name: str
     category: str
-    description: Optional[str] = None
+    description: str | None = None
     tags: list[str] = Field(default_factory=list)
-    source_id: Optional[int] = None
-    source_url: Optional[str] = None
+    source_id: int | None = None
+    source_url: str | None = None
     source_type: str = "official_microsoft"
     ps_edition: str = "Desktop,Core"
-    min_ps_version: Optional[str] = None
-    module_name: Optional[str] = None
+    min_ps_version: str | None = None
+    module_name: str | None = None
     trust_level: float = 1.0
     confidence_score: float = 1.0
     structured_details: dict[str, Any] = Field(default_factory=dict)
@@ -24,21 +25,21 @@ class KnowledgeEntityCreate(KnowledgeEntityBase):
 
 
 class KnowledgeEntityUpdate(BaseModel):
-    description: Optional[str] = None
-    tags: Optional[list[str]] = None
-    ps_edition: Optional[str] = None
-    min_ps_version: Optional[str] = None
-    module_name: Optional[str] = None
-    trust_level: Optional[float] = None
-    confidence_score: Optional[float] = None
-    structured_details: Optional[dict[str, Any]] = None
+    description: str | None = None
+    tags: list[str] | None = None
+    ps_edition: str | None = None
+    min_ps_version: str | None = None
+    module_name: str | None = None
+    trust_level: float | None = None
+    confidence_score: float | None = None
+    structured_details: dict[str, Any] | None = None
 
 
 class KnowledgeRelationBase(BaseModel):
     from_entity_id: int
     to_entity_id: int
     relation_type: str
-    description: Optional[str] = None
+    description: str | None = None
     confidence: float = 1.0
 
 
@@ -49,15 +50,15 @@ class KnowledgeRelationCreate(KnowledgeRelationBase):
 class KnowledgeRelationResponse(KnowledgeRelationBase):
     id: int
     created_at: datetime.datetime
-    target_canonical_name: Optional[str] = None
-    target_category: Optional[str] = None
+    target_canonical_name: str | None = None
+    target_category: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class KnowledgeEntityResponse(KnowledgeEntityBase):
     id: int
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
     date_indexed: datetime.datetime
     date_updated: datetime.datetime
     outgoing_relations: list[KnowledgeRelationResponse] = Field(default_factory=list)
@@ -69,7 +70,7 @@ class KnowledgeEntityResponse(KnowledgeEntityBase):
 class KnowledgeSourceBase(BaseModel):
     name: str
     source_type: str
-    url: Optional[str] = None
+    url: str | None = None
     trust_level: float = 1.0
     is_active: bool = True
     auto_refresh: bool = False
@@ -82,7 +83,7 @@ class KnowledgeSourceCreate(KnowledgeSourceBase):
 
 class KnowledgeSourceResponse(KnowledgeSourceBase):
     id: int
-    last_crawled_at: Optional[datetime.datetime] = None
+    last_crawled_at: datetime.datetime | None = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
     entity_count: int = 0
@@ -92,8 +93,8 @@ class KnowledgeSourceResponse(KnowledgeSourceBase):
 
 class KnowledgeSearchQuery(BaseModel):
     query: str
-    category: Optional[str] = None
-    module_name: Optional[str] = None
+    category: str | None = None
+    module_name: str | None = None
     min_trust_level: float = 0.0
     limit: int = 20
 

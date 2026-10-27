@@ -1,4 +1,3 @@
-
 import json
 
 from pydantic import AnyHttpUrl, EmailStr, PostgresDsn, field_validator, model_validator
@@ -8,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "ER-PSScripter"
     API_V1_STR: str = "/api/v1"
-    
+
     # CORS
     BACKEND_CORS_ORIGINS: list[AnyHttpUrl] = []
 
@@ -54,7 +53,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "changethis-to-a-secure-random-key-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
-    
+
     FIRST_SUPERUSER: EmailStr = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "admin"
 
@@ -64,11 +63,7 @@ class Settings(BaseSettings):
     ENTRA_TENANT_ID: str = "common"
     ENTRA_REDIRECT_URI: str = "http://localhost:13020/login/callback"
 
-    model_config = SettingsConfigDict(
-        case_sensitive=True,
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
-    )
+    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
 
 settings = Settings()

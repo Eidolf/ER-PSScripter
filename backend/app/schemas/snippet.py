@@ -14,11 +14,14 @@ class SnippetBase(BaseModel):
     relative_path: str | None = None
     content_hash: str | None = None
 
+
 class SnippetCreate(SnippetBase):
     pass
 
+
 class SnippetUpdate(SnippetBase):
     parent_version_id: int | None = None
+
 
 class SnippetVersionResponse(BaseModel):
     id: int
@@ -32,6 +35,7 @@ class SnippetVersionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class SnippetResponse(SnippetBase):
     id: int

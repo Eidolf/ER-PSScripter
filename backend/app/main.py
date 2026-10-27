@@ -41,6 +41,7 @@ if settings.BACKEND_CORS_ORIGINS:
 else:
     print("DEBUG: No CORS Origins configured!")
 
+
 # Security: Helmet-like headers
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next: Any) -> Response:
@@ -51,17 +52,21 @@ async def add_security_headers(request: Request, call_next: Any) -> Response:
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
     return response
 
+
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Starting up ER-PSScripter Backend...")
+
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
+
 @app.get("/ready")
 def readiness_check() -> dict[str, str]:
     return {"status": "ready"}
+
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(terminal.router, prefix="/ws", tags=["terminal"])

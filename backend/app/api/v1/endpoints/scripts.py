@@ -8,6 +8,7 @@ from app.services.ai_generator import AIGeneratorService
 router = APIRouter()
 ai_service = AIGeneratorService()
 
+
 @router.post("/generate", response_model=ScriptResponse)
 async def generate_script(request: ScriptRequest) -> Any:
     """

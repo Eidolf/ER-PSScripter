@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 
 
@@ -10,11 +9,13 @@ class ScriptRequest(BaseModel):
     include_header: bool = True
     custom_header_text: str | None = None
 
+
 class ScriptResponse(BaseModel):
     name: str
     content: str
     optimization_suggestions: list[str]
     used_snippets: list[str]
+
 
 class SnippetCreate(BaseModel):
     name: str
