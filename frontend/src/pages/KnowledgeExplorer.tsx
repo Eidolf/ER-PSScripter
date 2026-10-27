@@ -60,6 +60,15 @@ interface KnowledgeSource {
     is_active: boolean;
     auto_refresh: boolean;
     entity_count: number;
+    last_crawled_at: string | null;
+}
+
+interface CrawlerStatus {
+    is_running: boolean;
+    source_id: number | null;
+    source_name: string | null;
+    progress_message: string;
+    pages_crawled: number;
 }
 
 export const KnowledgeExplorer: React.FC = () => {
@@ -67,12 +76,39 @@ export const KnowledgeExplorer: React.FC = () => {
     const [entities, setEntities] = useState<KnowledgeEntity[]>([]);
     const [sources, setSources] = useState<KnowledgeSource[]>([]);
     const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] });
-    
+    const [crawlerStatus, setCrawlerStatus] = useState<CrawlerStatus>({
+        is_running: false,
+        source_id: null,
+        source_name: null,
+        progress_message: 'Idle',
+        pages_crawled: 0,
+    });
+
     const [activeTab, setActiveTab] = useState<'entities' | 'graph' | 'sources' | 'health'>('entities');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [selectedEntity, setSelectedEntity] = useState<KnowledgeEntity | null>(null);
     const [loading, setLoading] = useState(false);
+
+    // Modal state for adding custom KB Article / Entity
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newArticle, setNewArticle] = useState({
+        canonical_name: '',
+        category: 'best_practice',
+        description: '',
+        module_name: '',
+        tags: '',
+        source_url: '',
+    });
+
+    // Modal state for adding URL / Documentation Source
+    const [showSourceModal, setShowSourceModal] = useState(false);
+    const [newSource, setNewSource] = useState({
+        name: '',
+        source_type: 'microsoft_learn',
+        url: '',
+        trust_level: 1.0,
+    });
 
     const token = localStorage.getItem('token');
     const headers = React.useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
@@ -80,16 +116,18 @@ export const KnowledgeExplorer: React.FC = () => {
     const fetchData = React.useCallback(async () => {
         setLoading(true);
         try {
-            const [metricsRes, entitiesRes, sourcesRes, graphRes] = await Promise.all([
+            const [metricsRes, entitiesRes, sourcesRes, graphRes, crawlerRes] = await Promise.all([
                 axios.get('/api/v1/knowledge/metrics', { headers }),
                 axios.get('/api/v1/knowledge/entities', { headers }),
                 axios.get('/api/v1/knowledge/sources', { headers }),
                 axios.get('/api/v1/knowledge/graph', { headers }),
+                axios.get('/api/v1/knowledge/crawler/status', { headers }),
             ]);
             setMetrics(metricsRes.data);
             setEntities(entitiesRes.data);
             setSources(sourcesRes.data);
             setGraphData(graphRes.data);
+            setCrawlerStatus(crawlerRes.data);
         } catch (error) {
             console.error('Failed to load knowledge data:', error);
         } finally {
@@ -101,6 +139,26 @@ export const KnowledgeExplorer: React.FC = () => {
         fetchData();
     }, [fetchData]);
 
+    // Live status polling when crawling is in progress
+    useEffect(() => {
+        let interval: NodeJS.Timeout | null = null;
+        if (crawlerStatus.is_running) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get('/api/v1/knowledge/crawler/status', { headers });
+                    setCrawlerStatus(res.data);
+                    if (!res.data.is_running) {
+                        fetchData();
+                    }
+                } catch (e) {
+                    console.error('Failed to poll crawler status:', e);
+                }
+            }, 2000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [crawlerStatus.is_running, headers, fetchData]);
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -118,6 +176,91 @@ export const KnowledgeExplorer: React.FC = () => {
             console.error('Search failed:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleStartCrawl = async (sourceId: number) => {
+        try {
+            setCrawlerStatus((prev) => ({ ...prev, is_running: true, progress_message: 'Triggering crawl...' }));
+            await axios.post(`/api/v1/knowledge/sources/${sourceId}/crawl`, {}, { headers });
+            fetchData();
+        } catch (err) {
+            console.error('Failed to trigger crawl:', err);
+        }
+    };
+
+    const handleStopCrawl = async () => {
+        try {
+            await axios.post('/api/v1/knowledge/crawler/stop', {}, { headers });
+            const res = await axios.get('/api/v1/knowledge/crawler/status', { headers });
+            setCrawlerStatus(res.data);
+        } catch (err) {
+            console.error('Failed to stop crawl:', err);
+        }
+    };
+
+    const handleCreateArticle = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const tagsList = newArticle.tags
+                .split(',')
+                .map((t) => t.trim())
+                .filter(Boolean);
+            await axios.post(
+                '/api/v1/knowledge/entities',
+                {
+                    canonical_name: newArticle.canonical_name,
+                    category: newArticle.category,
+                    description: newArticle.description,
+                    module_name: newArticle.module_name || null,
+                    tags: tagsList,
+                    source_url: newArticle.source_url || null,
+                    source_type: 'manual_entry',
+                    trust_level: 0.95,
+                    confidence_score: 1.0,
+                },
+                { headers }
+            );
+            setShowAddModal(false);
+            setNewArticle({
+                canonical_name: '',
+                category: 'best_practice',
+                description: '',
+                module_name: '',
+                tags: '',
+                source_url: '',
+            });
+            fetchData();
+        } catch (err) {
+            console.error('Failed to create knowledge article:', err);
+        }
+    };
+
+    const handleCreateSource = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            await axios.post(
+                '/api/v1/knowledge/sources',
+                {
+                    name: newSource.name,
+                    source_type: newSource.source_type,
+                    url: newSource.url || null,
+                    trust_level: newSource.trust_level,
+                    is_active: true,
+                    auto_refresh: false,
+                },
+                { headers }
+            );
+            setShowSourceModal(false);
+            setNewSource({
+                name: '',
+                source_type: 'microsoft_learn',
+                url: '',
+                trust_level: 1.0,
+            });
+            fetchData();
+        } catch (err) {
+            console.error('Failed to create knowledge source:', err);
         }
     };
 
@@ -141,22 +284,44 @@ export const KnowledgeExplorer: React.FC = () => {
                     </p>
                 </div>
 
-                {/* Score Pills */}
-                {metrics && (
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-1.5 rounded-lg text-center">
-                            <span className="block text-xs uppercase font-semibold text-blue-600 dark:text-blue-400">Coverage</span>
-                            <span className="text-lg font-bold text-blue-700 dark:text-blue-300">{metrics.knowledge_coverage_score}%</span>
-                        </div>
-                        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5 rounded-lg text-center">
-                            <span className="block text-xs uppercase font-semibold text-green-600 dark:text-green-400">Source Quality</span>
-                            <span className="text-lg font-bold text-green-700 dark:text-green-300">{metrics.source_quality_score}%</span>
-                        </div>
-                        <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 px-3 py-1.5 rounded-lg text-center">
-                            <span className="block text-xs uppercase font-semibold text-purple-600 dark:text-purple-400">Freshness</span>
-                            <span className="text-lg font-bold text-purple-700 dark:text-purple-300">{metrics.repository_freshness_score}%</span>
-                        </div>
-                    </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                        onClick={() => setShowAddModal(true)}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition flex items-center gap-2 text-sm"
+                    >
+                        <span>+</span> Add KB Article
+                    </button>
+                    <button
+                        onClick={() => setShowSourceModal(true)}
+                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 font-medium rounded-lg border border-gray-300 dark:border-gray-700 transition text-sm"
+                    >
+                        + Add Documentation URL
+                    </button>
+                </div>
+            </div>
+
+            {/* Live Crawler Status Bar */}
+            <div className={`p-4 rounded-xl border mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 ${
+                crawlerStatus.is_running
+                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+            }`}>
+                <div className="flex items-center gap-3">
+                    <span className={`w-3 h-3 rounded-full ${crawlerStatus.is_running ? 'bg-amber-500 animate-ping' : 'bg-green-500'}`} />
+                    <span className="font-semibold text-sm">
+                        Crawler Status: {crawlerStatus.is_running ? `CRAWLING (${crawlerStatus.source_name || 'Active'})` : 'IDLE'}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {crawlerStatus.progress_message}
+                    </span>
+                </div>
+                {crawlerStatus.is_running && (
+                    <button
+                        onClick={handleStopCrawl}
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded shadow transition"
+                    >
+                        Stop / Cancel Crawl
+                    </button>
                 )}
             </div>
 
@@ -285,7 +450,7 @@ export const KnowledgeExplorer: React.FC = () => {
 
                                     <div>
                                         <h4 className="text-xs font-semibold text-gray-500 uppercase">Description</h4>
-                                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-line">
                                             {selectedEntity.description}
                                         </p>
                                     </div>
@@ -367,11 +532,13 @@ export const KnowledgeExplorer: React.FC = () => {
             {/* Tab: Knowledge Sources */}
             {activeTab === 'sources' && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 space-y-6">
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Registered Knowledge Sources</h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                            Authoritative documentation repositories, PowerShell Gallery specs, and verified community feeds.
-                        </p>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Registered Knowledge Sources</h2>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                Authoritative documentation repositories, PowerShell Gallery specs, and verified community feeds.
+                            </p>
+                        </div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -381,29 +548,40 @@ export const KnowledgeExplorer: React.FC = () => {
                                     <th className="py-3 px-4">Source Name</th>
                                     <th className="py-3 px-4">Type</th>
                                     <th className="py-3 px-4">Trust Level</th>
-                                    <th className="py-3 px-4">Auto Refresh</th>
+                                    <th className="py-3 px-4">Last Crawled</th>
                                     <th className="py-3 px-4">Entities</th>
-                                    <th className="py-3 px-4">URL</th>
+                                    <th className="py-3 px-4">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
                                 {sources.map((src) => (
                                     <tr key={src.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                                        <td className="py-3 px-4 font-semibold text-gray-900 dark:text-white">{src.name}</td>
+                                        <td className="py-3 px-4 font-semibold text-gray-900 dark:text-white">
+                                            {src.name}
+                                            {src.url && (
+                                                <a href={src.url} target="_blank" rel="noreferrer" className="block text-xs text-blue-500 hover:underline">
+                                                    {src.url}
+                                                </a>
+                                            )}
+                                        </td>
                                         <td className="py-3 px-4 capitalize text-gray-600 dark:text-gray-300">{src.source_type.replace('_', ' ')}</td>
                                         <td className="py-3 px-4">
                                             <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">
                                                 {Math.round(src.trust_level * 100)}%
                                             </span>
                                         </td>
-                                        <td className="py-3 px-4 text-gray-600 dark:text-gray-300">{src.auto_refresh ? 'Enabled' : 'Manual'}</td>
+                                        <td className="py-3 px-4 text-xs text-gray-500">
+                                            {src.last_crawled_at ? new Date(src.last_crawled_at).toLocaleString() : 'Never'}
+                                        </td>
                                         <td className="py-3 px-4 font-bold">{src.entity_count}</td>
                                         <td className="py-3 px-4">
-                                            {src.url ? (
-                                                <a href={src.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs">
-                                                    Visit Source
-                                                </a>
-                                            ) : '-'}
+                                            <button
+                                                disabled={crawlerStatus.is_running}
+                                                onClick={() => handleStartCrawl(src.id)}
+                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded text-xs shadow transition"
+                                            >
+                                                Start Crawl
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}
@@ -467,6 +645,168 @@ export const KnowledgeExplorer: React.FC = () => {
                                 ))}
                             </ul>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Add Manual KB Article */}
+            {showAddModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add New PowerShell KB Article</h3>
+                            <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+                        </div>
+                        <form onSubmit={handleCreateArticle} className="space-y-4 text-sm">
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Title / Concept Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. ConvertTo-SecureString Best Practice"
+                                    value={newArticle.canonical_name}
+                                    onChange={(e) => setNewArticle({ ...newArticle, canonical_name: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Category</label>
+                                    <select
+                                        value={newArticle.category}
+                                        onChange={(e) => setNewArticle({ ...newArticle, category: e.target.value })}
+                                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white capitalize"
+                                    >
+                                        <option value="best_practice">Best Practice</option>
+                                        <option value="security_guidance">Security Guidance</option>
+                                        <option value="cmdlet">Cmdlet</option>
+                                        <option value="module">Module</option>
+                                        <option value="authentication_method">Authentication Method</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Module Name (Optional)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Microsoft.Graph"
+                                        value={newArticle.module_name}
+                                        onChange={(e) => setNewArticle({ ...newArticle, module_name: e.target.value })}
+                                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Content / Description</label>
+                                <textarea
+                                    rows={4}
+                                    required
+                                    placeholder="Explain the pattern, rules, examples or troubleshooting steps..."
+                                    value={newArticle.description}
+                                    onChange={(e) => setNewArticle({ ...newArticle, description: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Tags (Comma separated)</label>
+                                <input
+                                    type="text"
+                                    placeholder="security, credentials, powershell7"
+                                    value={newArticle.tags}
+                                    onChange={(e) => setNewArticle({ ...newArticle, tags: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source URL (Optional reference)</label>
+                                <input
+                                    type="url"
+                                    placeholder="https://learn.microsoft.com/..."
+                                    value={newArticle.source_url}
+                                    onChange={(e) => setNewArticle({ ...newArticle, source_url: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+                                >
+                                    Save Article
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Add URL Documentation Source */}
+            {showSourceModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Register Documentation Source</h3>
+                            <button onClick={() => setShowSourceModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+                        </div>
+                        <form onSubmit={handleCreateSource} className="space-y-4 text-sm">
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Azure PowerShell Modules Docs"
+                                    value={newSource.name}
+                                    onChange={(e) => setNewSource({ ...newSource, name: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Type</label>
+                                <select
+                                    value={newSource.source_type}
+                                    onChange={(e) => setNewSource({ ...newSource, source_type: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white capitalize"
+                                >
+                                    <option value="microsoft_learn">Microsoft Learn Docs</option>
+                                    <option value="psgallery">PowerShell Gallery</option>
+                                    <option value="microsoft_repo">Microsoft GitHub Repo</option>
+                                    <option value="community_blog">Technical Blog / Community</option>
+                                    <option value="custom_url">Custom Documentation URL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Target Documentation URL</label>
+                                <input
+                                    type="url"
+                                    required
+                                    placeholder="https://learn.microsoft.com/powershell/module/..."
+                                    value={newSource.url}
+                                    onChange={(e) => setNewSource({ ...newSource, url: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSourceModal(false)}
+                                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+                                >
+                                    Register Source
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

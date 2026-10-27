@@ -165,3 +165,30 @@ def trigger_seed(db: Session = Depends(deps.get_db)) -> Any:
     """Manually trigger or update seed knowledge."""
     seed_powershell_knowledge_base(db)
     return {"status": "success", "message": "Authoritative PowerShell knowledge base seeded."}
+
+
+@router.get("/crawler/status", response_model=dict[str, Any])
+def get_crawler_status() -> Any:
+    """Return live status of the documentation crawler."""
+    from app.services.knowledge_crawler import crawler_manager
+
+    return crawler_manager.get_status()
+
+
+@router.post("/sources/{source_id}/crawl", response_model=dict[str, Any])
+async def trigger_source_crawl(
+    source_id: int,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Trigger an on-demand crawl on a specific knowledge source."""
+    from app.services.knowledge_crawler import crawler_manager
+
+    return await crawler_manager.crawl_source(source_id, db)
+
+
+@router.post("/crawler/stop", response_model=dict[str, Any])
+def stop_active_crawl() -> Any:
+    """Stop/cancel any currently running documentation crawl."""
+    from app.services.knowledge_crawler import crawler_manager
+
+    return crawler_manager.stop_crawl()
