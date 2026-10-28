@@ -63,6 +63,21 @@ def normalize_github_url(url: str) -> tuple[str, bool]:
     return url, False
 
 
+def parse_github_tree_url(url: str) -> tuple[str, str, str, str] | None:
+    """Parse github tree/folder URL into (owner, repo, branch, folder_path)."""
+    # Pattern: https://github.com/owner/repo/tree/branch/sub/path
+    m = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/tree/([^/]+)(?:/(.*))?", url)
+    if m:
+        owner, repo, branch, subpath = m.groups()
+        return owner, repo, branch, subpath or ""
+    # Pattern: https://github.com/owner/repo (repo root)
+    m_root = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/?$", url)
+    if m_root:
+        owner, repo = m_root.groups()
+        return owner, repo, "main", ""
+    return None
+
+
 class KnowledgeCrawlerManager:
     """Manages deep 24/7 background crawling of PowerShell documentation, GitHub repos, and PSGallery."""
 
@@ -292,13 +307,43 @@ class KnowledgeCrawlerManager:
             self._log(f"Internal source '{source.name}' sync complete.")
             return {"status": "success", "pages_crawled": 1, "entities_extracted": 0}
 
-        # Normalize potential GitHub URLs
-        start_url, is_raw_md = normalize_github_url(url)
-        parsed_start = urlparse(start_url)
-        base_domain = parsed_start.netloc.lower()
-
         # Crawl queue tracking: (url, current_depth)
-        queue: list[tuple[str, int]] = [(start_url, 0)]
+        queue: list[tuple[str, int]] = []
+        visited: set[str] = set()
+
+        # Check for GitHub repository folder/tree URLs (e.g. github.com/MicrosoftDocs/.../tree/main/exchange)
+        gh_tree = parse_github_tree_url(url)
+        if gh_tree:
+            owner, repo, branch, folder_path = gh_tree
+            self.progress_message = f"Querying GitHub tree index for {owner}/{repo}/{folder_path}..."
+            self._log(f"Detected GitHub folder URL for {owner}/{repo}/{folder_path}. Fetching tree index...")
+            try:
+                tree_api = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+                async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=25.0) as api_client:
+                    tree_resp = await api_client.get(tree_api)
+                    if tree_resp.status_code == 200:
+                        tree_data = tree_resp.json()
+                        prefix = folder_path.strip("/")
+                        for item in tree_data.get("tree", []):
+                            item_path = item.get("path", "")
+                            if (not prefix or item_path.startswith(prefix + "/")) and item_path.endswith(".md"):
+                                raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{item_path}"
+                                queue.append((raw_url, 0))
+                        count_found = len(queue)
+                        self._log(f"Discovered {count_found} PowerShell docs via GitHub API in '{folder_path}'.")
+                    else:
+                        self._log(f"GitHub API tree returned status {tree_resp.status_code}. Using page queue.")
+            except Exception as e:
+                self._log(f"Error resolving GitHub tree API: {e}. Falling back to page fetch.")
+
+        if not queue:
+            # Normalize potential GitHub URLs
+            start_url, is_raw_md = normalize_github_url(url)
+            parsed_start = urlparse(start_url)
+            base_domain = parsed_start.netloc.lower()
+            queue = [(start_url, 0)]
+        else:
+            base_domain = "raw.githubusercontent.com"
         visited: set[str] = set()
 
         async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=20.0, follow_redirects=True) as client:
