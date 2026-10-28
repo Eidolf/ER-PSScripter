@@ -50,6 +50,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
     const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
     const layoutModeRef = useRef<LayoutMode>('force');
+    const [pinnedNodeIds, setPinnedNodeIds] = useState<Set<number>>(new Set());
 
     // Zoom and pan state
     const [zoom, setZoom] = useState<number>(1.0);
@@ -497,6 +498,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
             if (dx * dx + dy * dy <= hitRadius * hitRadius) {
                 // Pin the node at dropped location so physics doesn't snap it back
                 pinNode(n);
+                setPinnedNodeIds((prev) => new Set(prev).add(n.id));
                 dragRef.current = {
                     mode: 'node',
                     node: n,
@@ -586,6 +588,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         simNodesRef.current.forEach((n) => {
             n.isPinned = false;
         });
+        setPinnedNodeIds(new Set());
 
         if (mode !== 'force') {
             applyLayoutFormation(mode, simNodesRef.current, width, height);
@@ -621,11 +624,12 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         simNodesRef.current.forEach((n) => {
             n.isPinned = false;
         });
+        setPinnedNodeIds(new Set());
     };
 
     const selectedDetails = useMemo(() => {
         if (!selectedNodeId) return null;
-        const node = simNodesRef.current.find((n) => n.id === selectedNodeId) || nodes.find((n) => n.id === selectedNodeId);
+        const node = nodes.find((n) => n.id === selectedNodeId);
         if (!node) return null;
         const incoming = edges.filter((e) => e.target === selectedNodeId);
         const outgoing = edges.filter((e) => e.source === selectedNodeId);
@@ -784,7 +788,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                                     <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
                                         {selectedDetails.node.category}
                                     </span>
-                                    {selectedDetails.node.isPinned && (
+                                    {(selectedNodeId !== null && pinnedNodeIds.has(selectedNodeId)) && (
                                         <span className="text-[10px] text-amber-600 font-semibold">📌 Pinned</span>
                                     )}
                                 </div>
