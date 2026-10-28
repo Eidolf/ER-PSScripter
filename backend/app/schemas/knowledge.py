@@ -81,6 +81,16 @@ class KnowledgeSourceCreate(KnowledgeSourceBase):
     pass
 
 
+class KnowledgeSourceUpdate(BaseModel):
+    name: str | None = None
+    source_type: str | None = None
+    url: str | None = None
+    trust_level: float | None = None
+    is_active: bool | None = None
+    auto_refresh: bool | None = None
+    refresh_frequency_hours: int | None = None
+
+
 class KnowledgeSourceResponse(KnowledgeSourceBase):
     id: int
     last_crawled_at: datetime.datetime | None = None

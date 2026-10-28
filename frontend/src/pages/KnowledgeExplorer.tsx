@@ -116,6 +116,9 @@ export const KnowledgeExplorer: React.FC = () => {
         trust_level: 1.0,
     });
 
+    // Modal state for editing existing Documentation Source
+    const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
+
     const token = localStorage.getItem('token');
     const headers = React.useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
 
@@ -288,6 +291,39 @@ export const KnowledgeExplorer: React.FC = () => {
             fetchData();
         } catch (err) {
             console.error('Failed to create knowledge source:', err);
+        }
+    };
+
+    const handleUpdateSource = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingSource) return;
+        try {
+            await axios.put(
+                `/api/v1/knowledge/sources/${editingSource.id}`,
+                {
+                    name: editingSource.name,
+                    source_type: editingSource.source_type,
+                    url: editingSource.url || null,
+                    trust_level: editingSource.trust_level,
+                },
+                { headers }
+            );
+            setEditingSource(null);
+            fetchData();
+        } catch (err) {
+            console.error('Failed to update knowledge source:', err);
+        }
+    };
+
+    const handleDeleteSource = async (sourceId: number, sourceName: string) => {
+        if (!window.confirm(`Are you sure you want to delete the source "${sourceName}"? Existing crawled entities will be preserved.`)) {
+            return;
+        }
+        try {
+            await axios.delete(`/api/v1/knowledge/sources/${sourceId}`, { headers });
+            fetchData();
+        } catch (err) {
+            console.error('Failed to delete knowledge source:', err);
         }
     };
 
@@ -667,13 +703,30 @@ export const KnowledgeExplorer: React.FC = () => {
                                         </td>
                                         <td className="py-3 px-4 font-bold">{src.entity_count}</td>
                                         <td className="py-3 px-4">
-                                            <button
-                                                disabled={crawlerStatus.is_running}
-                                                onClick={() => handleStartCrawl(src.id)}
-                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded text-xs shadow transition"
-                                            >
-                                                Start Crawl
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    disabled={crawlerStatus.is_running}
+                                                    onClick={() => handleStartCrawl(src.id)}
+                                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded text-xs shadow transition"
+                                                    title="Run on-demand crawl on this source"
+                                                >
+                                                    Start Crawl
+                                                </button>
+                                                <button
+                                                    onClick={() => setEditingSource(src)}
+                                                    className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded text-xs transition"
+                                                    title="Edit source name and URL"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteSource(src.id, src.name)}
+                                                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded text-xs transition"
+                                                    title="Delete source"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -896,6 +949,81 @@ export const KnowledgeExplorer: React.FC = () => {
                                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
                                 >
                                     Register Source
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            {/* Modal: Edit Documentation Source */}
+            {editingSource && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Edit Knowledge Source</h3>
+                            <button onClick={() => setEditingSource(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+                        </div>
+                        <form onSubmit={handleUpdateSource} className="space-y-4 text-sm">
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={editingSource.name}
+                                    onChange={(e) => setEditingSource({ ...editingSource, name: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Type</label>
+                                <select
+                                    value={editingSource.source_type}
+                                    onChange={(e) => setEditingSource({ ...editingSource, source_type: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white capitalize"
+                                >
+                                    <option value="microsoft_learn">Microsoft Learn Docs</option>
+                                    <option value="psgallery">PowerShell Gallery</option>
+                                    <option value="microsoft_repo">Microsoft GitHub Repo</option>
+                                    <option value="community_blog">Technical Blog / Community</option>
+                                    <option value="custom_url">Custom Documentation URL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Documentation URL</label>
+                                <input
+                                    type="url"
+                                    required
+                                    placeholder="https://..."
+                                    value={editingSource.url || ''}
+                                    onChange={(e) => setEditingSource({ ...editingSource, url: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Trust Level ({Math.round(editingSource.trust_level * 100)}%)</label>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="1.0"
+                                    step="0.05"
+                                    value={editingSource.trust_level}
+                                    onChange={(e) => setEditingSource({ ...editingSource, trust_level: parseFloat(e.target.value) })}
+                                    className="w-full"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingSource(null)}
+                                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow"
+                                >
+                                    Save Changes
                                 </button>
                             </div>
                         </form>

@@ -14,6 +14,7 @@ from app.schemas.knowledge import (
     KnowledgeSearchResult,
     KnowledgeSourceCreate,
     KnowledgeSourceResponse,
+    KnowledgeSourceUpdate,
     RepositoryHealthMetrics,
 )
 from app.services.knowledge_retrieval import knowledge_retrieval_service
@@ -143,6 +144,62 @@ def create_knowledge_source(
         updated_at=s.updated_at,
         entity_count=0,
     )
+
+
+@router.put("/sources/{source_id}", response_model=KnowledgeSourceResponse)
+def update_knowledge_source(
+    source_id: int,
+    source_in: KnowledgeSourceUpdate,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Update details of an existing knowledge source (name, url, trust_level, etc.)."""
+    source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Knowledge source not found")
+
+    update_data = source_in.model_dump(exclude_unset=True)
+    for field, val in update_data.items():
+        setattr(source, field, val)
+
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+
+    cnt = db.query(KnowledgeEntity).filter(KnowledgeEntity.source_id == source.id).count()
+    return KnowledgeSourceResponse(
+        id=source.id,
+        name=source.name,
+        source_type=source.source_type,
+        url=source.url,
+        trust_level=source.trust_level,
+        is_active=source.is_active,
+        auto_refresh=source.auto_refresh,
+        refresh_frequency_hours=source.refresh_frequency_hours,
+        last_crawled_at=source.last_crawled_at,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+        entity_count=cnt,
+    )
+
+
+@router.delete("/sources/{source_id}", response_model=dict[str, Any])
+def delete_knowledge_source(
+    source_id: int,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Delete a registered knowledge source. Associated entities will have source_id set to null."""
+    source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Knowledge source not found")
+
+    # Unlink any entities referencing this source to preserve knowledge while detaching origin
+    db.query(KnowledgeEntity).filter(KnowledgeEntity.source_id == source_id).update(
+        {KnowledgeEntity.source_id: None}
+    )
+    db.delete(source)
+    db.commit()
+
+    return {"status": "success", "message": f"Source '{source.name}' deleted successfully."}
 
 
 @router.get("/search", response_model=list[KnowledgeSearchResult])
