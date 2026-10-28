@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import datetime
 import logging
 import re
@@ -209,14 +208,20 @@ class KnowledgeCrawlerManager:
         self._log(f"Requested single-source crawl for source ID {source_id} (limit: {max_pages} pages)...")
 
         async def _runner() -> None:
-            if prev_daemon_task:
-                with contextlib.suppress(asyncio.CancelledError, TimeoutError, Exception):
-                    await asyncio.wait_for(asyncio.shield(prev_daemon_task), timeout=5.0)
-                # Reset stop_requested so ad-hoc crawl runs freshly
-                self._stop_requested = False
-
             db: Session = SessionLocal()
             try:
+                if prev_daemon_task:
+                    # Wait for cancelled daemon to complete without shielding so runner cancellation propagates
+                    await asyncio.wait({prev_daemon_task}, timeout=5.0)
+                    # Only clear stop flag if handoff completed without stop request being raised
+                    if not self._stop_requested:
+                        self._stop_requested = False
+
+                if self._stop_requested:
+                    self.progress_message = "Crawler stopped."
+                    self._log("Crawl aborted prior to start due to stop request.")
+                    return
+
                 await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
             except asyncio.CancelledError:
                 self.progress_message = "Crawler stopped."

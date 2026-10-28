@@ -48,14 +48,6 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     const zoomRef = useRef(1.0);
     const panRef = useRef({ x: 0, y: 0 });
 
-    const setZoomAndSync = useCallback((valOrFn: number | ((prev: number) => number)) => {
-        setZoom((prev) => {
-            const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn;
-            zoomRef.current = next;
-            return next;
-        });
-    }, []);
-
     // Filter nodes and related edges
     const filteredNodes = useMemo(() => {
         if (filterCategory === 'all') return nodes;
@@ -474,11 +466,15 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     };
 
     const handleZoomIn = () => {
-        setZoomAndSync((prev) => Math.min(3.5, prev * 1.25));
+        const nextZoom = Math.min(3.5, zoomRef.current * 1.25);
+        zoomRef.current = nextZoom;
+        setZoom(nextZoom);
     };
 
     const handleZoomOut = () => {
-        setZoomAndSync((prev) => Math.max(0.3, prev * 0.8));
+        const nextZoom = Math.max(0.3, zoomRef.current * 0.8);
+        zoomRef.current = nextZoom;
+        setZoom(nextZoom);
     };
 
     const selectedDetails = useMemo(() => {
