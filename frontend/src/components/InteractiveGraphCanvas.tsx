@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 
 export interface GraphNode {
     id: number;
@@ -40,6 +40,15 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     const [filterCategory, setFilterCategory] = useState<string>('all');
     const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
 
+    // Zoom and pan state
+    const [zoom, setZoom] = useState<number>(1.0);
+    const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+    const zoomRef = useRef(zoom);
+    zoomRef.current = zoom;
+    const panRef = useRef(pan);
+    panRef.current = pan;
+
     // Filter nodes and related edges
     const filteredNodes = useMemo(() => {
         if (filterCategory === 'all') return nodes;
@@ -53,7 +62,21 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     }, [edges, activeNodeIds]);
 
     const simNodesRef = useRef<SimNode[]>([]);
-    const dragRef = useRef<{ node: SimNode | null; isDragging: boolean }>({ node: null, isDragging: false });
+    const dragRef = useRef<{
+        mode: 'none' | 'node' | 'pan';
+        node: SimNode | null;
+        startX: number;
+        startY: number;
+        panStartX: number;
+        panStartY: number;
+    }>({
+        mode: 'none',
+        node: null,
+        startX: 0,
+        startY: 0,
+        panStartX: 0,
+        panStartY: 0,
+    });
 
     // Node category colors
     const getCategoryColor = (cat: string) => {
@@ -73,20 +96,37 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         }
     };
 
-    // Initialize simulation nodes
+    // Helper: screen coordinates to world coordinates (taking zoom & pan into account)
+    const toWorldCoords = useCallback((screenX: number, screenY: number) => {
+        const z = zoomRef.current;
+        const p = panRef.current;
+        return {
+            x: (screenX - p.x) / z,
+            y: (screenY - p.y) / z,
+        };
+    }, []);
+
+    // Initialize simulation nodes with existing positions preserved when possible
     useEffect(() => {
-        const width = 800;
-        const height = 500;
+        const width = 820;
+        const height = 520;
+        const prevMap = new Map<number, SimNode>();
+        simNodesRef.current.forEach((n) => prevMap.set(n.id, n));
+
         simNodesRef.current = filteredNodes.map((n, i) => {
+            const existing = prevMap.get(n.id);
+            if (existing) {
+                return { ...existing, ...n };
+            }
             const angle = (i / Math.max(1, filteredNodes.length)) * 2 * Math.PI;
-            const radius = 160 + Math.random() * 80;
+            const radius = 170 + Math.random() * 80;
             return {
                 ...n,
                 x: width / 2 + Math.cos(angle) * radius + (Math.random() - 0.5) * 40,
                 y: height / 2 + Math.sin(angle) * radius + (Math.random() - 0.5) * 40,
                 vx: 0,
                 vy: 0,
-                radius: n.category === 'module' ? 24 : 18,
+                radius: n.category === 'module' ? 26 : 20,
             };
         });
     }, [filteredNodes]);
@@ -99,7 +139,6 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         if (!ctx) return;
 
         let animId: number;
-
         const nodeMap = new Map<number, SimNode>();
 
         const step = () => {
@@ -115,8 +154,8 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
 
             for (const n of currentNodes) {
                 if (dragRef.current.node?.id === n.id) continue;
-                n.vx += (cx - n.x) * 0.0006;
-                n.vy += (cy - n.y) * 0.0006;
+                n.vx += (cx - n.x) * 0.0005;
+                n.vy += (cy - n.y) * 0.0005;
             }
 
             // Repulsion between nodes
@@ -128,10 +167,10 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                     const dy = n2.y - n1.y;
                     const distSq = dx * dx + dy * dy + 1;
                     const dist = Math.sqrt(distSq);
-                    const minDist = n1.radius + n2.radius + 30;
+                    const minDist = n1.radius + n2.radius + 35;
 
-                    if (dist < 260) {
-                        const force = (minDist * 18) / distSq;
+                    if (dist < 280) {
+                        const force = (minDist * 20) / distSq;
                         const fx = (dx / dist) * force;
                         const fy = (dy / dist) * force;
 
@@ -155,7 +194,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                     const dx = t.x - s.x;
                     const dy = t.y - s.y;
                     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const targetDist = 110;
+                    const targetDist = 120;
                     const force = (dist - targetDist) * 0.015;
                     const fx = (dx / dist) * force;
                     const fy = (dy / dist) * force;
@@ -171,21 +210,23 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                 }
             }
 
-            // Update positions with damping and boundaries
+            // Update positions with damping
             for (const n of currentNodes) {
                 if (dragRef.current.node?.id !== n.id) {
                     n.x += n.vx;
                     n.y += n.vy;
                     n.vx *= 0.85;
                     n.vy *= 0.85;
-
-                    n.x = Math.max(n.radius + 10, Math.min(width - n.radius - 10, n.x));
-                    n.y = Math.max(n.radius + 10, Math.min(height - n.radius - 10, n.y));
                 }
             }
 
             // RENDER CANVAS
             ctx.clearRect(0, 0, width, height);
+
+            // Save and apply camera transformation (Pan & Zoom)
+            ctx.save();
+            ctx.translate(panRef.current.x, panRef.current.y);
+            ctx.scale(zoomRef.current, zoomRef.current);
 
             // 1. Draw Edges
             for (const edge of filteredEdges) {
@@ -203,13 +244,20 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                 ctx.lineWidth = isHighlight ? 2.5 : 1.2;
                 ctx.stroke();
 
-                // Relation text label at midpoint
+                // Relation text label at midpoint with readable white pill background
                 const midX = (s.x + t.x) / 2;
                 const midY = (s.y + t.y) / 2;
+                const relText = edge.relation.replace('_', ' ');
+
                 ctx.font = '9px system-ui, sans-serif';
-                ctx.fillStyle = isHighlight ? '#1d4ed8' : '#94a3b8';
+                const textWidth = ctx.measureText(relText).width;
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                ctx.fillRect(midX - textWidth / 2 - 3, midY - 11, textWidth + 6, 12);
+
+                ctx.fillStyle = isHighlight ? '#1d4ed8' : '#64748b';
                 ctx.textAlign = 'center';
-                ctx.fillText(edge.relation.replace('_', ' '), midX, midY - 3);
+                ctx.fillText(relText, midX, midY - 2);
             }
 
             // 2. Draw Nodes
@@ -221,8 +269,8 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                 // Outer halo if selected or hovered
                 if (isSelected || isHovered) {
                     ctx.beginPath();
-                    ctx.arc(n.x, n.y, n.radius + 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = isSelected ? 'rgba(59, 130, 246, 0.25)' : 'rgba(203, 213, 225, 0.3)';
+                    ctx.arc(n.x, n.y, n.radius + 8, 0, 2 * Math.PI);
+                    ctx.fillStyle = isSelected ? 'rgba(59, 130, 246, 0.3)' : 'rgba(203, 213, 225, 0.4)';
                     ctx.fill();
                 }
 
@@ -231,17 +279,25 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                 ctx.arc(n.x, n.y, n.radius, 0, 2 * Math.PI);
                 ctx.fillStyle = color;
                 ctx.fill();
-                ctx.lineWidth = isSelected ? 3 : 1.5;
+                ctx.lineWidth = isSelected ? 3.5 : 2;
                 ctx.strokeStyle = '#ffffff';
                 ctx.stroke();
 
-                // Node label text
+                // Node label text with readable background pill
                 ctx.font = `${n.category === 'module' ? 'bold ' : ''}11px monospace`;
-                ctx.fillStyle = '#1e293b';
+                const label = n.label;
+                const labelWidth = ctx.measureText(label).width;
+                const labelY = n.y + n.radius + 15;
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillRect(n.x - labelWidth / 2 - 4, labelY - 10, labelWidth + 8, 14);
+
+                ctx.fillStyle = '#0f172a';
                 ctx.textAlign = 'center';
-                const label = n.label.length > 18 ? n.label.substring(0, 16) + '…' : n.label;
-                ctx.fillText(label, n.x, n.y + n.radius + 14);
+                ctx.fillText(label, n.x, labelY);
             }
+
+            ctx.restore();
 
             animId = requestAnimationFrame(step);
         };
@@ -255,19 +311,40 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         const canvas = canvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        const world = toWorldCoords(screenX, screenY);
 
+        // Check if a node was clicked (entire circle interior + generous touch padding)
         for (const n of simNodesRef.current) {
-            const dx = mx - n.x;
-            const dy = my - n.y;
-            if (dx * dx + dy * dy <= (n.radius + 4) * (n.radius + 4)) {
-                dragRef.current = { node: n, isDragging: true };
+            const dx = world.x - n.x;
+            const dy = world.y - n.y;
+            // Radius + 10px generous padding so the user can easily click anywhere inside or near the circle
+            const hitRadius = n.radius + 10;
+            if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+                dragRef.current = {
+                    mode: 'node',
+                    node: n,
+                    startX: world.x,
+                    startY: world.y,
+                    panStartX: panRef.current.x,
+                    panStartY: panRef.current.y,
+                };
                 setSelectedNodeId(n.id);
                 if (onSelectNode) onSelectNode(n.id);
                 return;
             }
         }
+
+        // Clicked background: Start canvas pan
+        dragRef.current = {
+            mode: 'pan',
+            node: null,
+            startX: screenX,
+            startY: screenY,
+            panStartX: panRef.current.x,
+            panStartY: panRef.current.y,
+        };
         setSelectedNodeId(null);
     };
 
@@ -275,23 +352,37 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         const canvas = canvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        const world = toWorldCoords(screenX, screenY);
 
-        if (dragRef.current.isDragging && dragRef.current.node) {
-            dragRef.current.node.x = mx;
-            dragRef.current.node.y = my;
+        // 1. Dragging Node
+        if (dragRef.current.mode === 'node' && dragRef.current.node) {
+            dragRef.current.node.x = world.x;
+            dragRef.current.node.y = world.y;
             dragRef.current.node.vx = 0;
             dragRef.current.node.vy = 0;
             return;
         }
 
-        // Hover detection
+        // 2. Panning Canvas
+        if (dragRef.current.mode === 'pan') {
+            const dx = screenX - dragRef.current.startX;
+            const dy = screenY - dragRef.current.startY;
+            setPan({
+                x: dragRef.current.panStartX + dx,
+                y: dragRef.current.panStartY + dy,
+            });
+            return;
+        }
+
+        // 3. Hover detection
         let found: SimNode | null = null;
         for (const n of simNodesRef.current) {
-            const dx = mx - n.x;
-            const dy = my - n.y;
-            if (dx * dx + dy * dy <= n.radius * n.radius) {
+            const dx = world.x - n.x;
+            const dy = world.y - n.y;
+            const hitRadius = n.radius + 8;
+            if (dx * dx + dy * dy <= hitRadius * hitRadius) {
                 found = n;
                 break;
             }
@@ -300,7 +391,49 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     };
 
     const handleMouseUp = () => {
-        dragRef.current = { node: null, isDragging: false };
+        dragRef.current = {
+            mode: 'none',
+            node: null,
+            startX: 0,
+            startY: 0,
+            panStartX: 0,
+            panStartY: 0,
+        };
+    };
+
+    // Zoom on wheel (mouse wheel zoom centered at cursor)
+    const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+        const newZoom = Math.min(3.5, Math.max(0.3, zoomRef.current * zoomFactor));
+
+        // Adjust pan to keep cursor position fixed in world space
+        const newPanX = mouseX - (mouseX - panRef.current.x) * (newZoom / zoomRef.current);
+        const newPanY = mouseY - (mouseY - panRef.current.y) * (newZoom / zoomRef.current);
+
+        setZoom(newZoom);
+        setPan({ x: newPanX, y: newPanY });
+    };
+
+    // Reset Zoom & Pan
+    const handleResetView = () => {
+        setZoom(1.0);
+        setPan({ x: 0, y: 0 });
+    };
+
+    const handleZoomIn = () => {
+        setZoom((prev) => Math.min(3.5, prev * 1.25));
+    };
+
+    const handleZoomOut = () => {
+        setZoom((prev) => Math.max(0.3, prev * 0.8));
     };
 
     const selectedDetails = useMemo(() => {
@@ -316,7 +449,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         <div className="space-y-4">
             {/* Filter controls and stats */}
             <div className="flex flex-wrap justify-between items-center gap-3 bg-gray-50 dark:bg-gray-900/60 p-3 rounded-xl border border-gray-200 dark:border-gray-800 text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                     <span className="font-semibold text-gray-700 dark:text-gray-300">Filter Category:</span>
                     <select
                         value={filterCategory}
@@ -330,12 +463,36 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                         <option value="security_guidance">Security</option>
                         <option value="authentication_method">Authentication</option>
                     </select>
+
+                    <div className="flex items-center gap-1 border-l border-gray-300 dark:border-gray-700 pl-3">
+                        <button
+                            onClick={handleZoomIn}
+                            className="px-2 py-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-700 rounded font-bold text-gray-700 dark:text-gray-200"
+                            title="Zoom In"
+                        >
+                            +
+                        </button>
+                        <button
+                            onClick={handleZoomOut}
+                            className="px-2 py-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-700 rounded font-bold text-gray-700 dark:text-gray-200"
+                            title="Zoom Out"
+                        >
+                            -
+                        </button>
+                        <button
+                            onClick={handleResetView}
+                            className="px-2.5 py-1 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-200"
+                            title="Reset View"
+                        >
+                            {Math.round(zoom * 100)}% Reset
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-4 text-gray-500">
                     <div>Nodes: <strong className="text-gray-800 dark:text-gray-200">{filteredNodes.length}</strong></div>
                     <div>Edges: <strong className="text-gray-800 dark:text-gray-200">{filteredEdges.length}</strong></div>
-                    <span className="text-gray-400">💡 Drag nodes to explore or click to inspect relationships</span>
+                    <span className="text-gray-400">💡 Mausrad: Zoom | Canvas ziehen: Pan | Node greifen: Bewegen</span>
                 </div>
             </div>
 
@@ -345,19 +502,26 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
                     <canvas
                         ref={canvasRef}
                         width={820}
-                        height={520}
+                        height={540}
                         onMouseDown={handleMouseDown}
                         onMouseMove={handleMouseMove}
                         onMouseUp={handleMouseUp}
-                        className="w-full h-[520px] cursor-grab active:cursor-grabbing block"
+                        onMouseLeave={handleMouseUp}
+                        onWheel={handleWheel}
+                        className="w-full h-[540px] cursor-grab active:cursor-grabbing block"
                     />
 
                     {/* Legend badge */}
-                    <div className="absolute bottom-3 left-3 flex items-center gap-3 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px]">
+                    <div className="absolute bottom-3 left-3 flex items-center gap-3 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] pointer-events-none">
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Cmdlet</span>
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Module</span>
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Best Practice</span>
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Security</span>
+                    </div>
+
+                    {/* Zoom indicator overlay */}
+                    <div className="absolute top-3 right-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm px-2.5 py-1 rounded border border-gray-200 dark:border-gray-700 text-[11px] font-mono text-gray-600 dark:text-gray-300 pointer-events-none">
+                        Zoom: {Math.round(zoom * 100)}%
                     </div>
                 </div>
 
@@ -424,4 +588,3 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         </div>
     );
 };
-
