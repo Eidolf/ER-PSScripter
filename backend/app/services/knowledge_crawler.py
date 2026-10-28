@@ -323,6 +323,11 @@ class KnowledgeCrawlerManager:
                     tree_resp = await api_client.get(tree_api)
                     if tree_resp.status_code == 200:
                         tree_data = tree_resp.json()
+                        if tree_data.get("truncated"):
+                            self._log(
+                                f"GitHub tree response for {owner}/{repo} is truncated; "
+                                f"partial results will be crawled."
+                            )
                         prefix = folder_path.strip("/")
                         for item in tree_data.get("tree", []):
                             item_path = item.get("path", "")

@@ -34,6 +34,10 @@ interface SimNode extends GraphNode {
 
 type LayoutMode = 'force' | 'exploded' | 'module_clusters' | 'hierarchical';
 
+const pinNode = (node: SimNode) => {
+    node.isPinned = true;
+};
+
 export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     nodes,
     edges,
@@ -46,7 +50,6 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null);
     const [layoutMode, setLayoutMode] = useState<LayoutMode>('force');
     const layoutModeRef = useRef<LayoutMode>('force');
-    layoutModeRef.current = layoutMode;
 
     // Zoom and pan state
     const [zoom, setZoom] = useState<number>(1.0);
@@ -493,7 +496,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
             const hitRadius = n.radius + 12;
             if (dx * dx + dy * dy <= hitRadius * hitRadius) {
                 // Pin the node at dropped location so physics doesn't snap it back
-                n.isPinned = true;
+                pinNode(n);
                 dragRef.current = {
                     mode: 'node',
                     node: n,
