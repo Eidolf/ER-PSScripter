@@ -168,7 +168,7 @@ def trigger_seed(db: Session = Depends(deps.get_db)) -> Any:
 
 
 @router.get("/crawler/status", response_model=dict[str, Any])
-def get_crawler_status() -> Any:
+async def get_crawler_status() -> Any:
     """Return live status of the documentation crawler."""
     from app.services.knowledge_crawler import crawler_manager
 
@@ -176,7 +176,7 @@ def get_crawler_status() -> Any:
 
 
 @router.post("/sources/{source_id}/crawl", response_model=dict[str, Any])
-def trigger_source_crawl(
+async def trigger_source_crawl(
     source_id: int,
 ) -> Any:
     """Trigger an on-demand crawl on a specific knowledge source in the background."""
@@ -185,9 +185,8 @@ def trigger_source_crawl(
     return crawler_manager.start_single_crawl(source_id)
 
 
-
 @router.post("/crawler/start-continuous", response_model=dict[str, Any])
-def start_continuous_crawl() -> Any:
+async def start_continuous_crawl() -> Any:
     """Start continuous 24/7 background ingestion of all active knowledge sources."""
     from app.services.knowledge_crawler import crawler_manager
 
@@ -195,7 +194,7 @@ def start_continuous_crawl() -> Any:
 
 
 @router.post("/crawler/stop", response_model=dict[str, Any])
-def stop_active_crawl() -> Any:
+async def stop_active_crawl() -> Any:
     """Stop/cancel any currently running documentation crawl."""
     from app.services.knowledge_crawler import crawler_manager
 
