@@ -10,8 +10,8 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models.knowledge import KnowledgeSource
-from app.schemas.knowledge import KnowledgeEntityCreate
+from app.models.knowledge import KnowledgeEntity, KnowledgeSource
+from app.schemas.knowledge import KnowledgeEntityCreate, KnowledgeRelationCreate
 from app.services.knowledge_service import knowledge_service
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,21 @@ def normalize_github_url(url: str) -> tuple[str, bool]:
     return url, False
 
 
+def parse_github_tree_url(url: str) -> tuple[str, str, str, str] | None:
+    """Parse github tree/folder URL into (owner, repo, branch, folder_path)."""
+    # Pattern: https://github.com/owner/repo/tree/branch/sub/path
+    m = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/tree/([^/]+)(?:/(.*))?", url)
+    if m:
+        owner, repo, branch, subpath = m.groups()
+        return owner, repo, branch, subpath or ""
+    # Pattern: https://github.com/owner/repo (repo root)
+    m_root = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/?$", url)
+    if m_root:
+        owner, repo = m_root.groups()
+        return owner, repo, "main", ""
+    return None
+
+
 class KnowledgeCrawlerManager:
     """Manages deep 24/7 background crawling of PowerShell documentation, GitHub repos, and PSGallery."""
 
@@ -74,10 +89,20 @@ class KnowledgeCrawlerManager:
         self.current_url: str | None = None
         self.progress_message: str = "Idle"
         self.pages_crawled: int = 0
+        self.max_pages: int = 0
         self.entities_extracted: int = 0
         self.queue_size: int = 0
+        self.recent_logs: list[str] = []
         self._stop_requested: bool = False
         self._background_task: asyncio.Task[None] | None = None
+
+    def _log(self, message: str) -> None:
+        """Add entry to recent in-memory activity logs."""
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        entry = f"[{timestamp}] {message}"
+        self.recent_logs.append(entry)
+        if len(self.recent_logs) > 30:
+            self.recent_logs.pop(0)
 
     def get_status(self) -> dict[str, Any]:
         return {
@@ -88,8 +113,10 @@ class KnowledgeCrawlerManager:
             "current_url": self.current_url,
             "progress_message": self.progress_message,
             "pages_crawled": self.pages_crawled,
+            "max_pages": self.max_pages,
             "entities_extracted": self.entities_extracted,
             "queue_size": self.queue_size,
+            "recent_logs": self.recent_logs,
         }
 
     def stop_crawl(self) -> dict[str, Any]:
@@ -102,6 +129,7 @@ class KnowledgeCrawlerManager:
             self.is_running = False
             self.progress_message = "Crawler stopped."
             self.current_url = None
+            self._log("Crawler stopped by user request.")
             return {"status": "stopped", "message": "Crawler stopped."}
         self.progress_message = "Idle"
         return {"status": "idle", "message": "No active crawler to stop."}
@@ -109,6 +137,7 @@ class KnowledgeCrawlerManager:
     async def run_continuous_daemon(self) -> None:
         """24/7 background worker loop that periodically inspects registered sources."""
         logger.info("PowerShell Knowledge 24/7 Crawler daemon started.")
+        self._log("24/7 continuous background crawler started.")
         try:
             while self.continuous_mode and not self._stop_requested:
                 try:
@@ -132,6 +161,7 @@ class KnowledgeCrawlerManager:
                     break
                 except Exception as e:
                     logger.error(f"Error in continuous crawl loop: {e}", exc_info=True)
+                    self._log(f"Continuous daemon error: {e}")
                     await asyncio.sleep(10.0)
 
                 # Sleep between passes if no sources need urgent refresh
@@ -147,37 +177,74 @@ class KnowledgeCrawlerManager:
             self.current_source_name = None
             self.current_url = None
             self._stop_requested = False
+            self._log("24/7 background crawler ended.")
 
     def start_continuous(self) -> dict[str, Any]:
         """Start or enable continuous 24/7 background ingestion."""
         if self.is_running and self.continuous_mode:
             return {"status": "already_running", "message": "Continuous 24/7 crawler is already active."}
+
+        # If a single ad-hoc crawl is running, don't interrupt it
+        if self.is_running and not self.continuous_mode:
+            return {"status": "busy", "message": f"Ad-hoc crawl currently running on '{self.current_source_name}'."}
+
         self.continuous_mode = True
         self._stop_requested = False
         self.is_running = True
-        self.progress_message = "24/7 background crawler started."
-        self._background_task = asyncio.create_task(self.run_continuous_daemon())
+        self.progress_message = "24/7 background crawler running..."
+        self._log("Initiating 24/7 background crawler loop...")
+        try:
+            loop = asyncio.get_running_loop()
+            self._background_task = loop.create_task(self.run_continuous_daemon())
+        except RuntimeError:
+            self._background_task = asyncio.create_task(self.run_continuous_daemon())
         return {"status": "started", "message": "24/7 continuous background crawler started."}
 
     def start_single_crawl(self, source_id: int, max_depth: int = 2, max_pages: int = 25) -> dict[str, Any]:
         """Start on-demand crawl as a cancellable background task."""
-        if self.is_running:
+        # Return busy if an ad-hoc crawl is already active
+        if self.is_running and not self.continuous_mode:
             return {"status": "busy", "message": f"Crawler is already active on '{self.current_source_name}'."}
+
+        prev_daemon_task: asyncio.Task[None] | None = None
+        # If continuous mode is running, pause/cancel daemon before ad-hoc crawl takes ownership
+        if self.continuous_mode and self._background_task and not self._background_task.done():
+            self._log("Pausing 24/7 continuous daemon for priority ad-hoc crawl.")
+            self._stop_requested = True
+            self._background_task.cancel()
+            prev_daemon_task = self._background_task
+            self.continuous_mode = False
 
         self.is_running = True
         self.continuous_mode = False
         self._stop_requested = False
-        self.progress_message = "Starting crawl..."
+        self.max_pages = max_pages
+        self.progress_message = "Starting on-demand crawl..."
+        self._log(f"Requested single-source crawl for source ID {source_id} (limit: {max_pages} pages)...")
 
         async def _runner() -> None:
             db: Session = SessionLocal()
             try:
+                if prev_daemon_task:
+                    # Wait for cancelled daemon to complete without shielding so runner cancellation propagates
+                    await asyncio.wait({prev_daemon_task}, timeout=5.0)
+                    # Only clear stop flag if handoff completed without stop request being raised
+                    if not self._stop_requested:
+                        self._stop_requested = False
+
+                if self._stop_requested:
+                    self.progress_message = "Crawler stopped."
+                    self._log("Crawl aborted prior to start due to stop request.")
+                    return
+
                 await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
             except asyncio.CancelledError:
                 self.progress_message = "Crawler stopped."
+                self._log("Single crawl cancelled.")
             except Exception as e:
                 logger.error(f"Error during crawl of source {source_id}: {e}", exc_info=True)
                 self.progress_message = f"Error: {e}"
+                self._log(f"Error during crawl: {e}")
             finally:
                 db.close()
                 self.is_running = False
@@ -185,8 +252,14 @@ class KnowledgeCrawlerManager:
                 self.current_source_name = None
                 self.current_url = None
                 self._stop_requested = False
+                self.queue_size = 0
 
-        self._background_task = asyncio.create_task(_runner())
+        try:
+            loop = asyncio.get_running_loop()
+            self._background_task = loop.create_task(_runner())
+        except RuntimeError:
+            self._background_task = asyncio.create_task(_runner())
+
         return {"status": "started", "message": "Crawl job started in background."}
 
     async def crawl_source(
@@ -213,13 +286,16 @@ class KnowledgeCrawlerManager:
     async def _execute_crawl(self, source_id: int, db: Session, max_depth: int, max_pages: int) -> dict[str, Any]:
         source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
         if not source:
+            self._log(f"Crawl target source ID {source_id} not found in database.")
             return {"status": "error", "message": "Source not found."}
 
         self.current_source_id = int(source.id) if source.id is not None else 0
         self.current_source_name = str(source.name)
         self.pages_crawled = 0
+        self.max_pages = max_pages
         self.entities_extracted = 0
         self.progress_message = f"Crawling source {source.name}..."
+        self._log(f"Started crawl on '{source.name}' (URL: {source.url or 'internal'}).")
 
         url = source.url
         if not url or not url.startswith("http"):
@@ -228,21 +304,58 @@ class KnowledgeCrawlerManager:
             self.pages_crawled = 1
             source.last_crawled_at = datetime.datetime.utcnow()
             db.commit()
+            self._log(f"Internal source '{source.name}' sync complete.")
             return {"status": "success", "pages_crawled": 1, "entities_extracted": 0}
 
-        # Normalize potential GitHub URLs
-        start_url, is_raw_md = normalize_github_url(url)
-        parsed_start = urlparse(start_url)
-        base_domain = parsed_start.netloc.lower()
-
         # Crawl queue tracking: (url, current_depth)
-        queue: list[tuple[str, int]] = [(start_url, 0)]
+        queue: list[tuple[str, int]] = []
+        visited: set[str] = set()
+
+        # Check for GitHub repository folder/tree URLs (e.g. github.com/MicrosoftDocs/.../tree/main/exchange)
+        gh_tree = parse_github_tree_url(url)
+        if gh_tree:
+            owner, repo, branch, folder_path = gh_tree
+            self.progress_message = f"Querying GitHub tree index for {owner}/{repo}/{folder_path}..."
+            self._log(f"Detected GitHub folder URL for {owner}/{repo}/{folder_path}. Fetching tree index...")
+            try:
+                tree_api = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+                async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=25.0) as api_client:
+                    tree_resp = await api_client.get(tree_api)
+                    if tree_resp.status_code == 200:
+                        tree_data = tree_resp.json()
+                        if tree_data.get("truncated"):
+                            self._log(
+                                f"GitHub tree response for {owner}/{repo} is truncated; "
+                                f"partial results will be crawled."
+                            )
+                        prefix = folder_path.strip("/")
+                        for item in tree_data.get("tree", []):
+                            item_path = item.get("path", "")
+                            if (not prefix or item_path.startswith(prefix + "/")) and item_path.endswith(".md"):
+                                raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{item_path}"
+                                queue.append((raw_url, 0))
+                        count_found = len(queue)
+                        self._log(f"Discovered {count_found} PowerShell docs via GitHub API in '{folder_path}'.")
+                    else:
+                        self._log(f"GitHub API tree returned status {tree_resp.status_code}. Using page queue.")
+            except Exception as e:
+                self._log(f"Error resolving GitHub tree API: {e}. Falling back to page fetch.")
+
+        if not queue:
+            # Normalize potential GitHub URLs
+            start_url, is_raw_md = normalize_github_url(url)
+            parsed_start = urlparse(start_url)
+            base_domain = parsed_start.netloc.lower()
+            queue = [(start_url, 0)]
+        else:
+            base_domain = "raw.githubusercontent.com"
         visited: set[str] = set()
 
         async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=20.0, follow_redirects=True) as client:
             while queue and self.pages_crawled < max_pages:
                 if self._stop_requested:
                     self.progress_message = "Crawl cancelled by user request."
+                    self._log("Crawl interrupted by stop request.")
                     break
 
                 self.queue_size = len(queue)
@@ -267,6 +380,7 @@ class KnowledgeCrawlerManager:
                     resp = await client.get(fetch_url)
                     if resp.status_code != 200:
                         logger.warning(f"Failed to fetch {clean_url}: status {resp.status_code}")
+                        self._log(f"HTTP {resp.status_code} fetching {clean_url[:60]}")
                         continue
 
                     self.pages_crawled += 1
@@ -277,11 +391,15 @@ class KnowledgeCrawlerManager:
                             resp.text, clean_url, source, db
                         )
                         self.entities_extracted += extracted
+                        if extracted > 0:
+                            self._log(f"Extracted {extracted} entities from {clean_url.split('/')[-1]}")
                     else:
                         extracted, new_links = self._parse_html_content(
                             resp.text, clean_url, source, db
                         )
                         self.entities_extracted += extracted
+                        if extracted > 0:
+                            self._log(f"Extracted {extracted} entities from {clean_url.split('/')[-1]}")
 
                         # Discover sublinks within boundary if not reached max_depth
                         if depth < max_depth:
@@ -298,18 +416,22 @@ class KnowledgeCrawlerManager:
 
                 except asyncio.CancelledError:
                     self.progress_message = "Crawl cancelled."
+                    self._log("Crawl cancelled asynchronously.")
                     break
                 except Exception as e:
                     logger.warning(f"Error fetching {clean_url}: {e}")
+                    self._log(f"Fetch error ({clean_url[:40]}): {e}")
 
         source.last_crawled_at = datetime.datetime.utcnow()
         db.commit()
+        self.queue_size = 0
         if self._stop_requested:
             self.progress_message = "Crawler stopped."
         else:
             self.progress_message = (
                 f"Done. Processed {self.pages_crawled} page(s), extracted {self.entities_extracted} entity/cmdlet(s)."
             )
+            self._log(f"Completed '{source.name}': {self.pages_crawled} pages, {self.entities_extracted} entities.")
         return {
             "status": "cancelled" if self._stop_requested else "success",
             "pages_crawled": self.pages_crawled,
@@ -380,7 +502,7 @@ class KnowledgeCrawlerManager:
 
         if cmdlet_name and self._is_valid_cmdlet(cmdlet_name):
             # Upsert Cmdlet entity
-            knowledge_service.upsert_entity(
+            cmdlet_entity = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=cmdlet_name,
@@ -403,13 +525,41 @@ class KnowledgeCrawlerManager:
             )
             extracted_count += 1
 
+            # Auto-link relation: cmdlet -> module
+            if module_name and cmdlet_entity and cmdlet_entity.id:
+                mod_entity = knowledge_service.upsert_entity(
+                    db,
+                    KnowledgeEntityCreate(
+                        canonical_name=module_name,
+                        category="module",
+                        description=f"PowerShell module containing {cmdlet_name} and related cmdlets.",
+                        tags=["module", "powershell"],
+                        source_id=source.id,
+                        source_url=url,
+                        source_type=str(source.source_type),
+                        trust_level=trust_val,
+                        confidence_score=1.0,
+                    ),
+                )
+                if mod_entity and mod_entity.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=cmdlet_entity.id,
+                            to_entity_id=mod_entity.id,
+                            relation_type="requires_module",
+                            description=f"{cmdlet_name} is exported by module {module_name}",
+                            confidence=1.0,
+                        ),
+                    )
+
         # Also find any other referenced cmdlets in markdown code blocks
         ps_code_blocks = re.findall(r"```(?:powershell)?\s*\n(.*?)\n```", body, re.DOTALL)
         for block in ps_code_blocks[:10]:
             found_cmds = self._extract_cmdlets_from_code(block)
             for cmd in found_cmds:
                 if cmd != cmdlet_name and self._is_valid_cmdlet(cmd):
-                    knowledge_service.upsert_entity(
+                    ref_entity = knowledge_service.upsert_entity(
                         db,
                         KnowledgeEntityCreate(
                             canonical_name=cmd,
@@ -426,6 +576,24 @@ class KnowledgeCrawlerManager:
                         ),
                     )
                     extracted_count += 1
+                    # Auto-link related_to relation between primary cmdlet and referenced cmdlet
+                    if cmdlet_name and ref_entity and ref_entity.id:
+                        primary_ent = (
+                            db.query(KnowledgeEntity)
+                            .filter(KnowledgeEntity.canonical_name.ilike(cmdlet_name))
+                            .first()
+                        )
+                        if primary_ent and primary_ent.id and primary_ent.id != ref_entity.id:
+                            knowledge_service.add_relation(
+                                db,
+                                KnowledgeRelationCreate(
+                                    from_entity_id=primary_ent.id,
+                                    to_entity_id=ref_entity.id,
+                                    relation_type="related_to",
+                                    description=f"Referenced together in documentation workflow at {url}",
+                                    confidence=0.85,
+                                ),
+                            )
 
         return extracted_count
 
@@ -476,8 +644,9 @@ class KnowledgeCrawlerManager:
         code_snippets: list[str] = [code.get_text() for code in soup.find_all(["code", "pre"])[:15]]
         syntax_blocks: list[str] = [s.strip() for s in code_snippets if "-" in s and len(s) < 250][:5]
 
+        primary_ent = None
         if self._is_valid_cmdlet(candidate_cmd):
-            knowledge_service.upsert_entity(
+            primary_ent = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=candidate_cmd,
@@ -495,12 +664,40 @@ class KnowledgeCrawlerManager:
             )
             extracted_count += 1
 
+            # Auto-link relation: cmdlet -> module
+            if module_name and primary_ent and primary_ent.id:
+                mod_entity = knowledge_service.upsert_entity(
+                    db,
+                    KnowledgeEntityCreate(
+                        canonical_name=module_name,
+                        category="module",
+                        description=f"PowerShell module containing {candidate_cmd} and related cmdlets.",
+                        tags=["module", "powershell"],
+                        source_id=source.id,
+                        source_url=url,
+                        source_type=str(source.source_type),
+                        trust_level=trust_val,
+                        confidence_score=1.0,
+                    ),
+                )
+                if mod_entity and mod_entity.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=primary_ent.id,
+                            to_entity_id=mod_entity.id,
+                            relation_type="requires_module",
+                            description=f"{candidate_cmd} is exported by module {module_name}",
+                            confidence=1.0,
+                        ),
+                    )
+
         # 2. Extract any PowerShell cmdlets listed in text or code blocks on the page
         body_text = soup.get_text()
         all_found = self._extract_cmdlets_from_code(body_text)
         for cmd in set(all_found):
             if cmd != candidate_cmd and self._is_valid_cmdlet(cmd):
-                knowledge_service.upsert_entity(
+                ref_ent = knowledge_service.upsert_entity(
                     db,
                     KnowledgeEntityCreate(
                         canonical_name=cmd,
@@ -517,6 +714,19 @@ class KnowledgeCrawlerManager:
                     ),
                 )
                 extracted_count += 1
+
+                # Auto-link related_to relation between primary cmdlet and referenced cmdlet
+                if primary_ent and primary_ent.id and ref_ent and ref_ent.id and primary_ent.id != ref_ent.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=primary_ent.id,
+                            to_entity_id=ref_ent.id,
+                            relation_type="related_to",
+                            description=f"Referenced together in PowerShell reference at {url}",
+                            confidence=0.8,
+                        ),
+                    )
 
         return extracted_count, discovered_links
 

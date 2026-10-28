@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { InteractiveGraphCanvas } from '../components/InteractiveGraphCanvas';
 
 interface HealthMetrics {
     total_entities: number;
@@ -68,10 +69,13 @@ interface CrawlerStatus {
     continuous_mode?: boolean;
     source_id: number | null;
     source_name: string | null;
+    current_url?: string | null;
     progress_message: string;
     pages_crawled: number;
+    max_pages?: number;
     entities_extracted?: number;
     queue_size?: number;
+    recent_logs?: string[];
 }
 
 export const KnowledgeExplorer: React.FC = () => {
@@ -112,6 +116,9 @@ export const KnowledgeExplorer: React.FC = () => {
         url: '',
         trust_level: 1.0,
     });
+
+    // Modal state for editing existing Documentation Source
+    const [editingSource, setEditingSource] = useState<KnowledgeSource | null>(null);
 
     const token = localStorage.getItem('token');
     const headers = React.useMemo(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
@@ -187,9 +194,13 @@ export const KnowledgeExplorer: React.FC = () => {
         try {
             setCrawlerStatus((prev) => ({ ...prev, is_running: true, progress_message: 'Triggering crawl...' }));
             await axios.post(`/api/v1/knowledge/sources/${sourceId}/crawl`, {}, { headers });
-            fetchData();
+            // Immediate status poll to capture running state and background details
+            const res = await axios.get('/api/v1/knowledge/crawler/status', { headers });
+            setCrawlerStatus(res.data);
         } catch (err) {
             console.error('Failed to trigger crawl:', err);
+            const res = await axios.get('/api/v1/knowledge/crawler/status', { headers }).catch(() => null);
+            if (res) setCrawlerStatus(res.data);
         }
     };
 
@@ -284,6 +295,39 @@ export const KnowledgeExplorer: React.FC = () => {
         }
     };
 
+    const handleUpdateSource = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingSource) return;
+        try {
+            await axios.put(
+                `/api/v1/knowledge/sources/${editingSource.id}`,
+                {
+                    name: editingSource.name,
+                    source_type: editingSource.source_type,
+                    url: editingSource.url || null,
+                    trust_level: editingSource.trust_level,
+                },
+                { headers }
+            );
+            setEditingSource(null);
+            fetchData();
+        } catch (err) {
+            console.error('Failed to update knowledge source:', err);
+        }
+    };
+
+    const handleDeleteSource = async (sourceId: number, sourceName: string) => {
+        if (!window.confirm(`Are you sure you want to delete the source "${sourceName}"? Existing crawled entities will be preserved.`)) {
+            return;
+        }
+        try {
+            await axios.delete(`/api/v1/knowledge/sources/${sourceId}`, { headers });
+            fetchData();
+        } catch (err) {
+            console.error('Failed to delete knowledge source:', err);
+        }
+    };
+
     const categories = ['all', 'cmdlet', 'module', 'best_practice', 'security_guidance', 'authentication_method'];
 
     return (
@@ -320,49 +364,94 @@ export const KnowledgeExplorer: React.FC = () => {
                 </div>
             </div>
 
-            {/* Live Crawler Status Bar */}
-            <div className={`p-4 rounded-xl border mb-6 flex flex-col md:flex-row justify-between items-center gap-4 ${
+            {/* Live Crawler Status Bar & Details */}
+            <div className={`p-4 rounded-xl border mb-6 transition-all ${
                 crawlerStatus.is_running
                     ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
                     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
             }`}>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className={`w-3 h-3 rounded-full ${crawlerStatus.is_running ? 'bg-amber-500 animate-ping' : 'bg-green-500'}`} />
-                        <span className="font-semibold text-sm">
-                            {crawlerStatus.is_running
-                                ? crawlerStatus.continuous_mode
-                                    ? '24/7 CRAWLER ACTIVE'
-                                    : `CRAWLING (${crawlerStatus.source_name || 'Active'})`
-                                : 'CRAWLER IDLE'}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className={`w-3 h-3 rounded-full ${crawlerStatus.is_running ? 'bg-amber-500 animate-ping' : 'bg-green-500'}`} />
+                            <span className="font-semibold text-sm">
+                                {crawlerStatus.is_running
+                                    ? crawlerStatus.continuous_mode
+                                        ? '24/7 BACKGROUND CRAWLER RUNNING'
+                                        : `CRAWLING: ${crawlerStatus.source_name || 'Active'}`
+                                    : 'CRAWLER IDLE'}
+                            </span>
+                        </div>
+                        <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/50 px-2.5 py-1 rounded-md font-mono">
+                            {crawlerStatus.progress_message}
                         </span>
+                        {crawlerStatus.entities_extracted !== undefined && crawlerStatus.entities_extracted > 0 && (
+                            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                +{crawlerStatus.entities_extracted} entities extracted
+                            </span>
+                        )}
                     </div>
-                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/50 px-2.5 py-1 rounded-md">
-                        {crawlerStatus.progress_message}
-                    </span>
-                    {crawlerStatus.entities_extracted !== undefined && crawlerStatus.entities_extracted > 0 && (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                            +{crawlerStatus.entities_extracted} entities extracted
-                        </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {!crawlerStatus.is_running ? (
+                            <button
+                                onClick={handleStartContinuousCrawl}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded shadow transition flex items-center gap-1.5"
+                                title="Continuously and gently crawl all registered documentation sources 24/7"
+                            >
+                                <span>▶</span> Start 24/7 Background Ingestion
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleStopCrawl}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded shadow transition flex items-center gap-1.5"
+                            >
+                                <span>⏹</span> Stop Crawler
+                            </button>
+                        )}
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    {!crawlerStatus.is_running ? (
-                        <button
-                            onClick={handleStartContinuousCrawl}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded shadow transition flex items-center gap-1.5"
-                        >
-                            <span>▶</span> Enable 24/7 Background Crawler
-                        </button>
-                    ) : (
-                        <button
-                            onClick={handleStopCrawl}
-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded shadow transition flex items-center gap-1.5"
-                        >
-                            <span>⏹</span> Stop Crawler
-                        </button>
-                    )}
-                </div>
+
+                {/* Detailed Live Telemetry when running or when logs exist */}
+                {crawlerStatus.is_running && (
+                    <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-800/60 text-xs space-y-2">
+                        <div className="flex flex-wrap items-center gap-4 text-xs">
+                            {crawlerStatus.max_pages ? (
+                                <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Pages: </span>
+                                    <span className="font-bold">{crawlerStatus.pages_crawled} / {crawlerStatus.max_pages}</span>
+                                </div>
+                            ) : (
+                                <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Pages processed: </span>
+                                    <span className="font-bold">{crawlerStatus.pages_crawled}</span>
+                                </div>
+                            )}
+
+                            {crawlerStatus.queue_size !== undefined && (
+                                <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Queue size: </span>
+                                    <span className="font-bold">{crawlerStatus.queue_size} link(s) pending</span>
+                                </div>
+                            )}
+
+                            {crawlerStatus.current_url && (
+                                <div className="truncate max-w-xl">
+                                    <span className="text-gray-500 dark:text-gray-400">Current URL: </span>
+                                    <span className="font-mono text-[11px] text-blue-600 dark:text-blue-400">{crawlerStatus.current_url}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Recent Activity Log Snippet */}
+                        {crawlerStatus.recent_logs && crawlerStatus.recent_logs.length > 0 && (
+                            <div className="mt-2 bg-gray-900 text-gray-200 rounded p-2.5 font-mono text-[11px] max-h-28 overflow-y-auto space-y-1">
+                                {crawlerStatus.recent_logs.slice(-5).map((log, index) => (
+                                    <div key={index} className="truncate">{log}</div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Navigation Tabs */}
@@ -541,31 +630,23 @@ export const KnowledgeExplorer: React.FC = () => {
             {/* Tab: Graph Visualization */}
             {activeTab === 'graph' && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 space-y-4">
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Knowledge Concept Relationship Graph</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Visualizing interconnected dependencies (modules $\leftrightarrow$ cmdlets $\leftrightarrow$ best practices $\leftrightarrow$ authentication).
-                    </p>
-                    
-                    <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {graphData.edges.map((edge, idx) => (
-                                <div key={idx} className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-                                    <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase">
-                                        {edge.relation.replace('_', ' ')}
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-2 font-mono text-sm">
-                                        <span className="font-bold text-gray-900 dark:text-white">
-                                            {graphData.nodes.find(n => n.id === edge.source)?.label || edge.source}
-                                        </span>
-                                        <span className="text-gray-400">→</span>
-                                        <span className="text-gray-700 dark:text-gray-300">
-                                            {graphData.nodes.find(n => n.id === edge.target)?.label || edge.target}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Knowledge Concept Relationship Graph</h2>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Interactive concept network of modules, cmdlets, and best-practice rules. Expands dynamically on every crawl with discovered module associations and cross-references.
+                        </p>
                     </div>
+
+                    <InteractiveGraphCanvas
+                        nodes={graphData.nodes}
+                        edges={graphData.edges}
+                        onSelectNode={(nodeId) => {
+                            const found = entities.find((e) => e.id === nodeId);
+                            if (found) {
+                                setSelectedEntity(found);
+                            }
+                        }}
+                    />
                 </div>
             )}
 
@@ -615,13 +696,30 @@ export const KnowledgeExplorer: React.FC = () => {
                                         </td>
                                         <td className="py-3 px-4 font-bold">{src.entity_count}</td>
                                         <td className="py-3 px-4">
-                                            <button
-                                                disabled={crawlerStatus.is_running}
-                                                onClick={() => handleStartCrawl(src.id)}
-                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded text-xs shadow transition"
-                                            >
-                                                Start Crawl
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    disabled={crawlerStatus.is_running}
+                                                    onClick={() => handleStartCrawl(src.id)}
+                                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded text-xs shadow transition"
+                                                    title="Run on-demand crawl on this source"
+                                                >
+                                                    Start Crawl
+                                                </button>
+                                                <button
+                                                    onClick={() => setEditingSource(src)}
+                                                    className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded text-xs transition"
+                                                    title="Edit source name and URL"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteSource(src.id, src.name)}
+                                                    className="px-2.5 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 rounded text-xs transition"
+                                                    title="Delete source"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -844,6 +942,81 @@ export const KnowledgeExplorer: React.FC = () => {
                                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
                                 >
                                     Register Source
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            {/* Modal: Edit Documentation Source */}
+            {editingSource && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+                        <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Edit Knowledge Source</h3>
+                            <button onClick={() => setEditingSource(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+                        </div>
+                        <form onSubmit={handleUpdateSource} className="space-y-4 text-sm">
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={editingSource.name}
+                                    onChange={(e) => setEditingSource({ ...editingSource, name: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Source Type</label>
+                                <select
+                                    value={editingSource.source_type}
+                                    onChange={(e) => setEditingSource({ ...editingSource, source_type: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white capitalize"
+                                >
+                                    <option value="microsoft_learn">Microsoft Learn Docs</option>
+                                    <option value="psgallery">PowerShell Gallery</option>
+                                    <option value="microsoft_repo">Microsoft GitHub Repo</option>
+                                    <option value="community_blog">Technical Blog / Community</option>
+                                    <option value="custom_url">Custom Documentation URL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Documentation URL</label>
+                                <input
+                                    type="url"
+                                    required
+                                    placeholder="https://..."
+                                    value={editingSource.url || ''}
+                                    onChange={(e) => setEditingSource({ ...editingSource, url: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Trust Level ({Math.round(editingSource.trust_level * 100)}%)</label>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="1.0"
+                                    step="0.05"
+                                    value={editingSource.trust_level}
+                                    onChange={(e) => setEditingSource({ ...editingSource, trust_level: parseFloat(e.target.value) })}
+                                    className="w-full"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingSource(null)}
+                                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow"
+                                >
+                                    Save Changes
                                 </button>
                             </div>
                         </form>
