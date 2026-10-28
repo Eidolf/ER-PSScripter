@@ -434,7 +434,7 @@ class KnowledgeCrawlerManager:
 
         if cmdlet_name and self._is_valid_cmdlet(cmdlet_name):
             # Upsert Cmdlet entity
-            knowledge_service.upsert_entity(
+            cmdlet_entity = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=cmdlet_name,
@@ -457,13 +457,41 @@ class KnowledgeCrawlerManager:
             )
             extracted_count += 1
 
+            # Auto-link relation: cmdlet -> module
+            if module_name and cmdlet_entity and cmdlet_entity.id:
+                mod_entity = knowledge_service.upsert_entity(
+                    db,
+                    KnowledgeEntityCreate(
+                        canonical_name=module_name,
+                        category="module",
+                        description=f"PowerShell module containing {cmdlet_name} and related cmdlets.",
+                        tags=["module", "powershell"],
+                        source_id=source.id,
+                        source_url=url,
+                        source_type=str(source.source_type),
+                        trust_level=trust_val,
+                        confidence_score=1.0,
+                    ),
+                )
+                if mod_entity and mod_entity.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=cmdlet_entity.id,
+                            to_entity_id=mod_entity.id,
+                            relation_type="requires_module",
+                            description=f"{cmdlet_name} is exported by module {module_name}",
+                            confidence=1.0,
+                        ),
+                    )
+
         # Also find any other referenced cmdlets in markdown code blocks
         ps_code_blocks = re.findall(r"```(?:powershell)?\s*\n(.*?)\n```", body, re.DOTALL)
         for block in ps_code_blocks[:10]:
             found_cmds = self._extract_cmdlets_from_code(block)
             for cmd in found_cmds:
                 if cmd != cmdlet_name and self._is_valid_cmdlet(cmd):
-                    knowledge_service.upsert_entity(
+                    ref_entity = knowledge_service.upsert_entity(
                         db,
                         KnowledgeEntityCreate(
                             canonical_name=cmd,
@@ -480,6 +508,24 @@ class KnowledgeCrawlerManager:
                         ),
                     )
                     extracted_count += 1
+                    # Auto-link related_to relation between primary cmdlet and referenced cmdlet
+                    if cmdlet_name and ref_entity and ref_entity.id:
+                        primary_ent = (
+                            db.query(KnowledgeEntity)
+                            .filter(KnowledgeEntity.canonical_name.ilike(cmdlet_name))
+                            .first()
+                        )
+                        if primary_ent and primary_ent.id and primary_ent.id != ref_entity.id:
+                            knowledge_service.add_relation(
+                                db,
+                                KnowledgeRelationCreate(
+                                    from_entity_id=primary_ent.id,
+                                    to_entity_id=ref_entity.id,
+                                    relation_type="related_to",
+                                    description=f"Referenced together in documentation workflow at {url}",
+                                    confidence=0.85,
+                                ),
+                            )
 
         return extracted_count
 
@@ -530,8 +576,9 @@ class KnowledgeCrawlerManager:
         code_snippets: list[str] = [code.get_text() for code in soup.find_all(["code", "pre"])[:15]]
         syntax_blocks: list[str] = [s.strip() for s in code_snippets if "-" in s and len(s) < 250][:5]
 
+        primary_ent = None
         if self._is_valid_cmdlet(candidate_cmd):
-            knowledge_service.upsert_entity(
+            primary_ent = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=candidate_cmd,
@@ -549,12 +596,40 @@ class KnowledgeCrawlerManager:
             )
             extracted_count += 1
 
+            # Auto-link relation: cmdlet -> module
+            if module_name and primary_ent and primary_ent.id:
+                mod_entity = knowledge_service.upsert_entity(
+                    db,
+                    KnowledgeEntityCreate(
+                        canonical_name=module_name,
+                        category="module",
+                        description=f"PowerShell module containing {candidate_cmd} and related cmdlets.",
+                        tags=["module", "powershell"],
+                        source_id=source.id,
+                        source_url=url,
+                        source_type=str(source.source_type),
+                        trust_level=trust_val,
+                        confidence_score=1.0,
+                    ),
+                )
+                if mod_entity and mod_entity.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=primary_ent.id,
+                            to_entity_id=mod_entity.id,
+                            relation_type="requires_module",
+                            description=f"{candidate_cmd} is exported by module {module_name}",
+                            confidence=1.0,
+                        ),
+                    )
+
         # 2. Extract any PowerShell cmdlets listed in text or code blocks on the page
         body_text = soup.get_text()
         all_found = self._extract_cmdlets_from_code(body_text)
         for cmd in set(all_found):
             if cmd != candidate_cmd and self._is_valid_cmdlet(cmd):
-                knowledge_service.upsert_entity(
+                ref_ent = knowledge_service.upsert_entity(
                     db,
                     KnowledgeEntityCreate(
                         canonical_name=cmd,
@@ -571,6 +646,19 @@ class KnowledgeCrawlerManager:
                     ),
                 )
                 extracted_count += 1
+
+                # Auto-link related_to relation between primary cmdlet and referenced cmdlet
+                if primary_ent and primary_ent.id and ref_ent and ref_ent.id and primary_ent.id != ref_ent.id:
+                    knowledge_service.add_relation(
+                        db,
+                        KnowledgeRelationCreate(
+                            from_entity_id=primary_ent.id,
+                            to_entity_id=ref_ent.id,
+                            relation_type="related_to",
+                            description=f"Referenced together in PowerShell reference at {url}",
+                            confidence=0.8,
+                        ),
+                    )
 
         return extracted_count, discovered_links
 

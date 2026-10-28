@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { InteractiveGraphCanvas } from '../components/InteractiveGraphCanvas';
 
 interface HealthMetrics {
     total_entities: number;
@@ -629,31 +630,23 @@ export const KnowledgeExplorer: React.FC = () => {
             {/* Tab: Graph Visualization */}
             {activeTab === 'graph' && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 space-y-4">
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Knowledge Concept Relationship Graph</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Visualizing interconnected dependencies (modules $\leftrightarrow$ cmdlets $\leftrightarrow$ best practices $\leftrightarrow$ authentication).
-                    </p>
-                    
-                    <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {graphData.edges.map((edge, idx) => (
-                                <div key={idx} className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-                                    <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase">
-                                        {edge.relation.replace('_', ' ')}
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-2 font-mono text-sm">
-                                        <span className="font-bold text-gray-900 dark:text-white">
-                                            {graphData.nodes.find(n => n.id === edge.source)?.label || edge.source}
-                                        </span>
-                                        <span className="text-gray-400">→</span>
-                                        <span className="text-gray-700 dark:text-gray-300">
-                                            {graphData.nodes.find(n => n.id === edge.target)?.label || edge.target}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white">Knowledge Concept Relationship Graph</h2>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Interaktives Beziehungsnetzwerk von Modulen, Cmdlets und Richtlinien. Wächst bei jedem Crawl automatisch durch entdeckte Modulzuordnungen und Querverweise.
+                        </p>
                     </div>
+
+                    <InteractiveGraphCanvas
+                        nodes={graphData.nodes}
+                        edges={graphData.edges}
+                        onSelectNode={(nodeId) => {
+                            const found = entities.find((e) => e.id === nodeId);
+                            if (found) {
+                                setSelectedEntity(found);
+                            }
+                        }}
+                    />
                 </div>
             )}
 
