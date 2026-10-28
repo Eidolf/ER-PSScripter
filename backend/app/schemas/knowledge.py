@@ -1,7 +1,7 @@
 import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class KnowledgeEntityBase(BaseModel):
@@ -89,6 +89,13 @@ class KnowledgeSourceUpdate(BaseModel):
     is_active: bool | None = None
     auto_refresh: bool | None = None
     refresh_frequency_hours: int | None = None
+
+    @field_validator("name", "source_type", mode="before")
+    @classmethod
+    def reject_null(cls, v: Any, info: Any) -> Any:
+        if v is None and info.field_name in ("name", "source_type"):
+            raise ValueError(f"'{info.field_name}' cannot be explicitly null.")
+        return v
 
 
 class KnowledgeSourceResponse(KnowledgeSourceBase):

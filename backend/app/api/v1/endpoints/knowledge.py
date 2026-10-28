@@ -158,6 +158,21 @@ def update_knowledge_source(
         raise HTTPException(status_code=404, detail="Knowledge source not found")
 
     update_data = source_in.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] is not None:
+        conflict = (
+            db.query(KnowledgeSource)
+            .filter(
+                KnowledgeSource.name == update_data["name"],
+                KnowledgeSource.id != source_id,
+            )
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Knowledge source with name '{update_data['name']}' already exists.",
+            )
+
     for field, val in update_data.items():
         setattr(source, field, val)
 

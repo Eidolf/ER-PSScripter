@@ -633,7 +633,7 @@ export const KnowledgeExplorer: React.FC = () => {
                     <div>
                         <h2 className="text-xl font-bold text-gray-900 dark:text-white">Knowledge Concept Relationship Graph</h2>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                            Interaktives Beziehungsnetzwerk von Modulen, Cmdlets und Richtlinien. Wächst bei jedem Crawl automatisch durch entdeckte Modulzuordnungen und Querverweise.
+                            Interactive concept network of modules, cmdlets, and best-practice rules. Expands dynamically on every crawl with discovered module associations and cross-references.
                         </p>
                     </div>
 

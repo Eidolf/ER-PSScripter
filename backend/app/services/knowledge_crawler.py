@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime
 import logging
 import re
@@ -10,8 +11,8 @@ from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models.knowledge import KnowledgeSource
-from app.schemas.knowledge import KnowledgeEntityCreate
+from app.models.knowledge import KnowledgeEntity, KnowledgeSource
+from app.schemas.knowledge import KnowledgeEntityCreate, KnowledgeRelationCreate
 from app.services.knowledge_service import knowledge_service
 
 logger = logging.getLogger(__name__)
@@ -187,11 +188,17 @@ class KnowledgeCrawlerManager:
 
     def start_single_crawl(self, source_id: int, max_depth: int = 2, max_pages: int = 25) -> dict[str, Any]:
         """Start on-demand crawl as a cancellable background task."""
-        # If continuous mode is running, temporarily pause/stop it so user ad-hoc crawl runs immediately
+        # Return busy if an ad-hoc crawl is already active
+        if self.is_running and not self.continuous_mode:
+            return {"status": "busy", "message": f"Crawler is already active on '{self.current_source_name}'."}
+
+        prev_daemon_task: asyncio.Task[None] | None = None
+        # If continuous mode is running, pause/cancel daemon before ad-hoc crawl takes ownership
         if self.continuous_mode and self._background_task and not self._background_task.done():
             self._log("Pausing 24/7 continuous daemon for priority ad-hoc crawl.")
             self._stop_requested = True
             self._background_task.cancel()
+            prev_daemon_task = self._background_task
             self.continuous_mode = False
 
         self.is_running = True
@@ -202,6 +209,12 @@ class KnowledgeCrawlerManager:
         self._log(f"Requested single-source crawl for source ID {source_id} (limit: {max_pages} pages)...")
 
         async def _runner() -> None:
+            if prev_daemon_task:
+                with contextlib.suppress(asyncio.CancelledError, TimeoutError, Exception):
+                    await asyncio.wait_for(asyncio.shield(prev_daemon_task), timeout=5.0)
+                # Reset stop_requested so ad-hoc crawl runs freshly
+                self._stop_requested = False
+
             db: Session = SessionLocal()
             try:
                 await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
