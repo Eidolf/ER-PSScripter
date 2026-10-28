@@ -67,6 +67,7 @@ class KnowledgeCrawlerManager:
     """Manages deep 24/7 background crawling of PowerShell documentation, GitHub repos, and PSGallery."""
 
     def __init__(self) -> None:
+        """Initialize idle crawl status without starting a background task."""
         self.is_running: bool = False
         self.continuous_mode: bool = False
         self.current_source_id: int | None = None
@@ -82,7 +83,7 @@ class KnowledgeCrawlerManager:
         self._background_task: asyncio.Task[None] | None = None
 
     def _log(self, message: str) -> None:
-        """Add entry to recent in-memory activity logs."""
+        """Append a local-time-stamped activity entry, retaining the latest 30 entries."""
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         entry = f"[{timestamp}] {message}"
         self.recent_logs.append(entry)
@@ -90,6 +91,7 @@ class KnowledgeCrawlerManager:
             self.recent_logs.pop(0)
 
     def get_status(self) -> dict[str, Any]:
+        """Return crawl state, counters, limits, and the shared recent activity list."""
         return {
             "is_running": self.is_running,
             "continuous_mode": self.continuous_mode,
@@ -105,6 +107,11 @@ class KnowledgeCrawlerManager:
         }
 
     def stop_crawl(self) -> dict[str, Any]:
+        """Disable continuous mode and request cancellation when marked running.
+
+        Return ``stopped`` immediately without awaiting task cleanup, or ``idle``
+        if no crawl is marked running.
+        """
         if self.is_running:
             self._stop_requested = True
             self.continuous_mode = False
@@ -120,7 +127,13 @@ class KnowledgeCrawlerManager:
         return {"status": "idle", "message": "No active crawler to stop."}
 
     async def run_continuous_daemon(self) -> None:
-        """24/7 background worker loop that periodically inspects registered sources."""
+        """Repeatedly crawl active sources, oldest crawl first, until stopped.
+
+        Each source uses depth 2 and a 30-page limit, regardless of its refresh
+        settings. Errors during a pass are caught so later passes can retry.
+        Reset running state on exit; cancellation during inter-pass or retry
+        sleeps propagates after cleanup.
+        """
         logger.info("PowerShell Knowledge 24/7 Crawler daemon started.")
         self._log("24/7 continuous background crawler started.")
         try:
@@ -165,7 +178,12 @@ class KnowledgeCrawlerManager:
             self._log("24/7 background crawler ended.")
 
     def start_continuous(self) -> dict[str, Any]:
-        """Start or enable continuous 24/7 background ingestion."""
+        """Schedule continuous ingestion and return ``started`` without awaiting it.
+
+        Return ``already_running`` for an active daemon or ``busy`` for an active
+        on-demand crawl. Raise RuntimeError if scheduling needs an event loop
+        and none is running; the running flags have already been set.
+        """
         if self.is_running and self.continuous_mode:
             return {"status": "already_running", "message": "Continuous 24/7 crawler is already active."}
 
@@ -186,7 +204,18 @@ class KnowledgeCrawlerManager:
         return {"status": "started", "message": "24/7 continuous background crawler started."}
 
     def start_single_crawl(self, source_id: int, max_depth: int = 2, max_pages: int = 25) -> dict[str, Any]:
-        """Start on-demand crawl as a cancellable background task."""
+        """Schedule a source crawl and return ``started`` before it completes.
+
+        Cancel an active continuous daemon without automatically resuming it.
+        An existing on-demand crawl does not prevent another from being scheduled.
+        ``max_depth`` counts followed links from the starting page at depth zero;
+        ``max_pages`` limits HTTP 200 responses, not fetch attempts. Nonpositive
+        page limits skip HTTP fetching; internal sources still count as one page.
+
+        Source lookup happens in the background. Crawl errors caught by the runner
+        update progress instead of reaching this caller. Raise RuntimeError if no
+        event loop is running; crawl state has already been changed.
+        """
         # If continuous mode is running, temporarily pause/stop it so user ad-hoc crawl runs immediately
         if self.continuous_mode and self._background_task and not self._background_task.done():
             self._log("Pausing 24/7 continuous daemon for priority ad-hoc crawl.")
@@ -202,6 +231,7 @@ class KnowledgeCrawlerManager:
         self._log(f"Requested single-source crawl for source ID {source_id} (limit: {max_pages} pages)...")
 
         async def _runner() -> None:
+            """Run the crawl with a private session, record crawl errors, and clear active state."""
             db: Session = SessionLocal()
             try:
                 await self._execute_crawl(source_id, db, max_depth=max_depth, max_pages=max_pages)
@@ -251,6 +281,21 @@ class KnowledgeCrawlerManager:
 
 
     async def _execute_crawl(self, source_id: int, db: Session, max_depth: int, max_pages: int) -> dict[str, Any]:
+        """Ingest a source and return status with page and cmdlet extraction counts.
+
+        Follow relevant HTML links on the starting host through ``max_depth``
+        (starting page is depth zero). ``max_pages`` caps HTTP 200 responses,
+        including pages whose parsing fails; nonpositive limits skip fetching.
+        A missing source returns an error status without counts. A source without
+        an HTTP URL only updates its crawl timestamp and counts as one page.
+
+        Update live progress and commit the crawl timestamp, including after
+        partial crawls. Entity upserts may commit independently. Skip non-200
+        responses and catch per-page fetch/parse errors. Return ``cancelled``
+        only when the stop flag is set; cancellation caught within a page ends
+        traversal but otherwise returns ``success``. Database errors outside
+        page processing and cancellation outside its handler propagate.
+        """
         source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
         if not source:
             self._log(f"Crawl target source ID {source_id} not found in database.")
@@ -389,7 +434,17 @@ class KnowledgeCrawlerManager:
     def _parse_markdown_content(
         self, markdown_text: str, url: str, source: KnowledgeSource, db: Session
     ) -> int:
-        """Parse raw PowerShell markdown (e.g. from MicrosoftDocs/PowerShell-Docs or community repos)."""
+        """Parse raw PowerShell markdown (e.g. from MicrosoftDocs/PowerShell-Docs or community repos).
+
+        Upsert the primary cmdlet and references from the first 10 code blocks,
+        and attempt module and cross-reference relations. Use ``url`` as their
+        provenance. Return the number of cmdlet upserts, including existing
+        entities and repeated references; module entities are excluded.
+
+        Upserts commit independently, so partial results can persist on failure.
+        Database and validation errors propagate. Relation paths can raise
+        NameError for unresolved KnowledgeRelationCreate or KnowledgeEntity names.
+        """
         extracted_count = 0
         trust_val = float(source.trust_level) if source.trust_level is not None else 1.0
 
@@ -532,7 +587,17 @@ class KnowledgeCrawlerManager:
     def _parse_html_content(
         self, html_text: str, url: str, source: KnowledgeSource, db: Session
     ) -> tuple[int, list[str]]:
-        """Parse HTML page from Microsoft Learn, PSGallery, or technical blog, extracting cmdlets and outbound links."""
+        """Parse HTML page from Microsoft Learn, PSGallery, or technical blog, extracting cmdlets and outbound links.
+
+        Upsert primary and referenced cmdlets, using ``url`` as provenance, and
+        attempt module and cross-reference relations. Return the cmdlet upsert
+        count (including existing entities, excluding modules) and all resolved
+        anchor URLs, without domain filtering or deduplication.
+
+        Upserts commit independently, so partial results can persist on failure.
+        Database and validation errors propagate. Relation creation can raise
+        NameError for the unresolved KnowledgeRelationCreate name.
+        """
         extracted_count = 0
         discovered_links: list[str] = []
         soup = BeautifulSoup(html_text, "html.parser")

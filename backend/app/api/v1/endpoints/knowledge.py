@@ -152,7 +152,11 @@ def update_knowledge_source(
     source_in: KnowledgeSourceUpdate,
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Update details of an existing knowledge source (name, url, trust_level, etc.)."""
+    """Commit explicitly supplied source fields and return the source with its entity count.
+
+    Omitted fields retain their values; explicit nulls are applied. Raise an HTTP
+    404 if the source is absent. Database and response validation errors propagate.
+    """
     source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Knowledge source not found")
@@ -187,7 +191,11 @@ def delete_knowledge_source(
     source_id: int,
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Delete a registered knowledge source. Associated entities will have source_id set to null."""
+    """Delete a registered knowledge source. Associated entities will have source_id set to null.
+
+    Commit the deletion and return a success status and message. Raise an HTTP 404
+    if the source is absent; database errors propagate.
+    """
     source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Knowledge source not found")
@@ -236,7 +244,11 @@ async def get_crawler_status() -> Any:
 async def trigger_source_crawl(
     source_id: int,
 ) -> Any:
-    """Trigger an on-demand crawl on a specific knowledge source in the background."""
+    """Schedule a source crawl and return its startup status before the crawl completes.
+
+    Cancel an active continuous daemon without automatically resuming it. Source
+    lookup and crawl failures occur in the background, after this response.
+    """
     from app.services.knowledge_crawler import crawler_manager
 
     return crawler_manager.start_single_crawl(source_id)
@@ -244,7 +256,11 @@ async def trigger_source_crawl(
 
 @router.post("/crawler/start-continuous", response_model=dict[str, Any])
 async def start_continuous_crawl() -> Any:
-    """Start continuous 24/7 background ingestion of all active knowledge sources."""
+    """Request continuous ingestion of active sources and return its startup status.
+
+    Return ``already_running`` for an active daemon or ``busy`` for an active
+    on-demand crawl; otherwise schedule the daemon and return ``started``.
+    """
     from app.services.knowledge_crawler import crawler_manager
 
     return crawler_manager.start_continuous()
@@ -252,7 +268,7 @@ async def start_continuous_crawl() -> Any:
 
 @router.post("/crawler/stop", response_model=dict[str, Any])
 async def stop_active_crawl() -> Any:
-    """Stop/cancel any currently running documentation crawl."""
+    """Request cancellation without waiting for cleanup; return ``stopped`` or ``idle``."""
     from app.services.knowledge_crawler import crawler_manager
 
     return crawler_manager.stop_crawl()

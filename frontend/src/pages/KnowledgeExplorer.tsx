@@ -78,6 +78,7 @@ interface CrawlerStatus {
     recent_logs?: string[];
 }
 
+/** Render knowledge search, the relationship graph, source management, and live crawler status. */
 export const KnowledgeExplorer: React.FC = () => {
     const [metrics, setMetrics] = useState<HealthMetrics | null>(null);
     const [entities, setEntities] = useState<KnowledgeEntity[]>([]);
@@ -190,6 +191,11 @@ export const KnowledgeExplorer: React.FC = () => {
         }
     };
 
+    /**
+     * Request a crawl for the selected source and refresh crawler status.
+     * Request failures are caught; if the recovery status request also fails,
+     * retain the current status, including the optimistic running flag.
+     */
     const handleStartCrawl = async (sourceId: number) => {
         try {
             setCrawlerStatus((prev) => ({ ...prev, is_running: true, progress_message: 'Triggering crawl...' }));
@@ -295,6 +301,10 @@ export const KnowledgeExplorer: React.FC = () => {
         }
     };
 
+    /**
+     * Save the source being edited, close its modal, and request a data refresh.
+     * Skip the update when no source is selected; caught request failures leave the modal open.
+     */
     const handleUpdateSource = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingSource) return;
@@ -316,6 +326,10 @@ export const KnowledgeExplorer: React.FC = () => {
         }
     };
 
+    /**
+     * Confirm deletion using sourceName, delete the source, and request a data refresh.
+     * Cancellation leaves data unchanged; request failures are caught.
+     */
     const handleDeleteSource = async (sourceId: number, sourceName: string) => {
         if (!window.confirm(`Are you sure you want to delete the source "${sourceName}"? Existing crawled entities will be preserved.`)) {
             return;

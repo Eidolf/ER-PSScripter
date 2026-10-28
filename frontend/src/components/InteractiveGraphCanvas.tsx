@@ -30,6 +30,11 @@ interface SimNode extends GraphNode {
     radius: number;
 }
 
+/**
+ * Render a force-directed graph with category filtering, dragging, zoom, and a node inspector.
+ * Edges are visible only when both endpoints pass the category filter.
+ * Call onSelectNode on node mouse-down; clearing selection does not invoke it.
+ */
 export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     nodes,
     edges,
@@ -79,6 +84,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     });
 
     // Node category colors
+    /** Return the category's display color, falling back to slate for unknown categories. */
     const getCategoryColor = (cat: string) => {
         switch (cat) {
             case 'cmdlet':
@@ -97,6 +103,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     };
 
     // Helper: screen coordinates to world coordinates (taking zoom & pan into account)
+    /** Convert pixel offsets from the canvas's top-left corner to graph coordinates. */
     const toWorldCoords = useCallback((screenX: number, screenY: number) => {
         const z = zoomRef.current;
         const p = panRef.current;
@@ -141,6 +148,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         let animId: number;
         const nodeMap = new Map<number, SimNode>();
 
+        /** Advance node positions, redraw the graph, and schedule the next animation frame. */
         const step = () => {
             const width = canvas.width;
             const height = canvas.height;
@@ -307,6 +315,11 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     }, [filteredEdges, selectedNodeId, hoveredNode]);
 
     // Mouse Interactions (Pan / Drag / Click)
+    /**
+     * Select and begin dragging the first node within its radius plus 10 graph units,
+     * or clear selection and begin panning on a background hit.
+     * Errors from onSelectNode propagate to the caller.
+     */
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -348,6 +361,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         setSelectedNodeId(null);
     };
 
+    /** Move a dragged node, pan the view, or update hover using 8 graph units of hit padding. */
     const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -390,6 +404,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
         setHoveredNode(found);
     };
 
+    /** End node dragging or panning, including when the pointer leaves the canvas. */
     const handleMouseUp = () => {
         dragRef.current = {
             mode: 'none',
@@ -402,6 +417,7 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     };
 
     // Zoom on wheel (mouse wheel zoom centered at cursor)
+    /** Zoom around the cursor, clamped to 0.3–3.5 times the original scale. */
     const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
         e.preventDefault();
         const canvas = canvasRef.current;
@@ -423,15 +439,18 @@ export const InteractiveGraphCanvas: React.FC<InteractiveGraphCanvasProps> = ({
     };
 
     // Reset Zoom & Pan
+    /** Restore the original scale and clear the pan offset. */
     const handleResetView = () => {
         setZoom(1.0);
         setPan({ x: 0, y: 0 });
     };
 
+    /** Increase the scale by 25%, capped at 3.5 times the original scale. */
     const handleZoomIn = () => {
         setZoom((prev) => Math.min(3.5, prev * 1.25));
     };
 
+    /** Reduce the scale by 20%, floored at 0.3 times the original scale. */
     const handleZoomOut = () => {
         setZoom((prev) => Math.max(0.3, prev * 0.8));
     };
