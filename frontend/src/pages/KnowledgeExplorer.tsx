@@ -74,6 +74,9 @@ interface CrawlerStatus {
     pages_crawled: number;
     max_pages?: number;
     entities_extracted?: number;
+    entities_created?: number;
+    entities_updated?: number;
+    entities_unchanged?: number;
     queue_size?: number;
     recent_logs?: string[];
 }
@@ -386,9 +389,26 @@ export const KnowledgeExplorer: React.FC = () => {
                             {crawlerStatus.progress_message}
                         </span>
                         {crawlerStatus.entities_extracted !== undefined && crawlerStatus.entities_extracted > 0 && (
-                            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                                +{crawlerStatus.entities_extracted} entities extracted
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                    {crawlerStatus.entities_extracted} extracted
+                                </span>
+                                {crawlerStatus.entities_created !== undefined && crawlerStatus.entities_created > 0 && (
+                                    <span className="text-xs font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-950/60 px-2 py-0.5 rounded border border-green-300 dark:border-green-800">
+                                        +{crawlerStatus.entities_created} new
+                                    </span>
+                                )}
+                                {crawlerStatus.entities_updated !== undefined && crawlerStatus.entities_updated > 0 && (
+                                    <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-300 dark:border-blue-800">
+                                        {crawlerStatus.entities_updated} updated
+                                    </span>
+                                )}
+                                {crawlerStatus.entities_unchanged !== undefined && crawlerStatus.entities_unchanged > 0 && (
+                                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                                        {crawlerStatus.entities_unchanged} unchanged
+                                    </span>
+                                )}
+                            </div>
                         )}
                     </div>
                     <div className="flex items-center gap-2">

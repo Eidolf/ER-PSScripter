@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -91,6 +92,9 @@ class KnowledgeCrawlerManager:
         self.pages_crawled: int = 0
         self.max_pages: int = 0
         self.entities_extracted: int = 0
+        self.entities_created: int = 0
+        self.entities_updated: int = 0
+        self.entities_unchanged: int = 0
         self.queue_size: int = 0
         self.recent_logs: list[str] = []
         self._stop_requested: bool = False
@@ -115,6 +119,9 @@ class KnowledgeCrawlerManager:
             "pages_crawled": self.pages_crawled,
             "max_pages": self.max_pages,
             "entities_extracted": self.entities_extracted,
+            "entities_created": self.entities_created,
+            "entities_updated": self.entities_updated,
+            "entities_unchanged": self.entities_unchanged,
             "queue_size": self.queue_size,
             "recent_logs": self.recent_logs,
         }
@@ -140,12 +147,24 @@ class KnowledgeCrawlerManager:
         self._log("24/7 continuous background crawler started.")
         try:
             while self.continuous_mode and not self._stop_requested:
+                processed_any = False
                 try:
                     db: Session = SessionLocal()
                     try:
+                        now = datetime.datetime.utcnow()
+                        # Minimum TTL: do not re-crawl sources unless at least 6 hours passed since last crawl
+                        min_interval = datetime.timedelta(hours=6)
+                        cutoff_time = now - min_interval
+
                         sources = (
                             db.query(KnowledgeSource)
-                            .filter(KnowledgeSource.is_active == True)  # noqa: E712
+                            .filter(
+                                KnowledgeSource.is_active == True,  # noqa: E712
+                                or_(
+                                    KnowledgeSource.last_crawled_at == None,  # noqa: E711
+                                    KnowledgeSource.last_crawled_at <= cutoff_time,
+                                ),
+                            )
                             .order_by(KnowledgeSource.last_crawled_at.asc().nullsfirst())
                             .all()
                         )
@@ -153,8 +172,13 @@ class KnowledgeCrawlerManager:
                             if not self.continuous_mode or self._stop_requested:
                                 break
                             if src.id is not None:
+                                processed_any = True
                                 await self._execute_crawl(int(src.id), db, max_depth=2, max_pages=30)
-                            await asyncio.sleep(5.0)
+                            # Gentle pause between sources (15s) to avoid spamming networks
+                            for _ in range(15):
+                                if not self.continuous_mode or self._stop_requested:
+                                    break
+                                await asyncio.sleep(1.0)
                     finally:
                         db.close()
                 except asyncio.CancelledError:
@@ -164,10 +188,25 @@ class KnowledgeCrawlerManager:
                     self._log(f"Continuous daemon error: {e}")
                     await asyncio.sleep(10.0)
 
-                # Sleep between passes if no sources need urgent refresh
-                for _ in range(30):
+                if not self.continuous_mode or self._stop_requested:
+                    break
+
+                # Full cycle completed: enter idle window so users can see the finished state
+                # Wait 15 minutes before checking again
+                idle_minutes = 15
+                self.current_source_id = None
+                self.current_source_name = None
+                self.current_url = None
+                status_suffix = "Cycle completed." if processed_any else "All sources fresh (TTL > 6h)."
+                self._log(f"24/7 cycle completed. Resting for {idle_minutes} minutes ({status_suffix})")
+
+                for elapsed in range(idle_minutes * 60):
                     if not self.continuous_mode or self._stop_requested:
                         break
+                    remaining_sec = (idle_minutes * 60) - elapsed
+                    rem_min = remaining_sec // 60
+                    rem_sec = remaining_sec % 60
+                    self.progress_message = f"Idle: {status_suffix} Next scan in {rem_min}m {rem_sec:02d}s"
                     await asyncio.sleep(1.0)
         finally:
             self.continuous_mode = False
@@ -294,6 +333,9 @@ class KnowledgeCrawlerManager:
         self.pages_crawled = 0
         self.max_pages = max_pages
         self.entities_extracted = 0
+        self.entities_created = 0
+        self.entities_updated = 0
+        self.entities_unchanged = 0
         self.progress_message = f"Crawling source {source.name}..."
         self._log(f"Started crawl on '{source.name}' (URL: {source.url or 'internal'}).")
 
@@ -373,8 +415,9 @@ class KnowledgeCrawlerManager:
                 )
 
                 try:
-                    # Gentle throttle to avoid rate-limiting or CPU spikes
-                    await asyncio.sleep(0.4)
+                    # Gentle throttle to avoid rate-limiting (1.5s in 24/7 background mode, 0.6s in ad-hoc)
+                    crawl_delay = 1.5 if self.continuous_mode else 0.6
+                    await asyncio.sleep(crawl_delay)
 
                     fetch_url, is_markdown = normalize_github_url(clean_url)
                     resp = await client.get(fetch_url)
@@ -428,14 +471,25 @@ class KnowledgeCrawlerManager:
         if self._stop_requested:
             self.progress_message = "Crawler stopped."
         else:
-            self.progress_message = (
-                f"Done. Processed {self.pages_crawled} page(s), extracted {self.entities_extracted} entity/cmdlet(s)."
+            diff_msg = (
+                f"({self.entities_created} new, {self.entities_updated} updated, "
+                f"{self.entities_unchanged} unchanged)"
             )
-            self._log(f"Completed '{source.name}': {self.pages_crawled} pages, {self.entities_extracted} entities.")
+            self.progress_message = (
+                f"Done. Processed {self.pages_crawled} page(s), "
+                f"extracted {self.entities_extracted} entity/cmdlet(s) {diff_msg}."
+            )
+            self._log(
+                f"Completed '{source.name}': {self.pages_crawled} pages, "
+                f"{self.entities_extracted} entities {diff_msg}."
+            )
         return {
             "status": "cancelled" if self._stop_requested else "success",
             "pages_crawled": self.pages_crawled,
             "entities_extracted": self.entities_extracted,
+            "entities_created": self.entities_created,
+            "entities_updated": self.entities_updated,
+            "entities_unchanged": self.entities_unchanged,
         }
 
     def _is_relevant_powershell_doc(self, url: str) -> bool:
@@ -502,7 +556,7 @@ class KnowledgeCrawlerManager:
 
         if cmdlet_name and self._is_valid_cmdlet(cmdlet_name):
             # Upsert Cmdlet entity
-            cmdlet_entity = knowledge_service.upsert_entity(
+            cmdlet_entity, outcome = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=cmdlet_name,
@@ -524,10 +578,16 @@ class KnowledgeCrawlerManager:
                 ),
             )
             extracted_count += 1
+            if outcome == "created":
+                self.entities_created += 1
+            elif outcome == "updated":
+                self.entities_updated += 1
+            else:
+                self.entities_unchanged += 1
 
             # Auto-link relation: cmdlet -> module
             if module_name and cmdlet_entity and cmdlet_entity.id:
-                mod_entity = knowledge_service.upsert_entity(
+                mod_entity, _ = knowledge_service.upsert_entity(
                     db,
                     KnowledgeEntityCreate(
                         canonical_name=module_name,
@@ -559,7 +619,7 @@ class KnowledgeCrawlerManager:
             found_cmds = self._extract_cmdlets_from_code(block)
             for cmd in found_cmds:
                 if cmd != cmdlet_name and self._is_valid_cmdlet(cmd):
-                    ref_entity = knowledge_service.upsert_entity(
+                    ref_entity, ref_outcome = knowledge_service.upsert_entity(
                         db,
                         KnowledgeEntityCreate(
                             canonical_name=cmd,
@@ -576,6 +636,12 @@ class KnowledgeCrawlerManager:
                         ),
                     )
                     extracted_count += 1
+                    if ref_outcome == "created":
+                        self.entities_created += 1
+                    elif ref_outcome == "updated":
+                        self.entities_updated += 1
+                    else:
+                        self.entities_unchanged += 1
                     # Auto-link related_to relation between primary cmdlet and referenced cmdlet
                     if cmdlet_name and ref_entity and ref_entity.id:
                         primary_ent = (
@@ -646,7 +712,7 @@ class KnowledgeCrawlerManager:
 
         primary_ent = None
         if self._is_valid_cmdlet(candidate_cmd):
-            primary_ent = knowledge_service.upsert_entity(
+            primary_ent, outcome = knowledge_service.upsert_entity(
                 db,
                 KnowledgeEntityCreate(
                     canonical_name=candidate_cmd,
@@ -663,10 +729,16 @@ class KnowledgeCrawlerManager:
                 ),
             )
             extracted_count += 1
+            if outcome == "created":
+                self.entities_created += 1
+            elif outcome == "updated":
+                self.entities_updated += 1
+            else:
+                self.entities_unchanged += 1
 
             # Auto-link relation: cmdlet -> module
             if module_name and primary_ent and primary_ent.id:
-                mod_entity = knowledge_service.upsert_entity(
+                mod_entity, _ = knowledge_service.upsert_entity(
                     db,
                     KnowledgeEntityCreate(
                         canonical_name=module_name,
@@ -697,7 +769,7 @@ class KnowledgeCrawlerManager:
         all_found = self._extract_cmdlets_from_code(body_text)
         for cmd in set(all_found):
             if cmd != candidate_cmd and self._is_valid_cmdlet(cmd):
-                ref_ent = knowledge_service.upsert_entity(
+                ref_ent, ref_outcome = knowledge_service.upsert_entity(
                     db,
                     KnowledgeEntityCreate(
                         canonical_name=cmd,
@@ -714,6 +786,12 @@ class KnowledgeCrawlerManager:
                     ),
                 )
                 extracted_count += 1
+                if ref_outcome == "created":
+                    self.entities_created += 1
+                elif ref_outcome == "updated":
+                    self.entities_updated += 1
+                else:
+                    self.entities_unchanged += 1
 
                 # Auto-link related_to relation between primary cmdlet and referenced cmdlet
                 if primary_ent and primary_ent.id and ref_ent and ref_ent.id and primary_ent.id != ref_ent.id:

@@ -73,7 +73,8 @@ def create_knowledge_entity(
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """Create or merge a PowerShell knowledge entity."""
-    return knowledge_service.upsert_entity(db, entity_in)
+    entity, _ = knowledge_service.upsert_entity(db, entity_in)
+    return entity
 
 
 @router.get("/graph", response_model=dict[str, Any])
