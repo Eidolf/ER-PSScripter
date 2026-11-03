@@ -391,7 +391,7 @@ class KnowledgeCrawlerManager:
             queue = [(start_url, 0)]
         else:
             base_domain = "raw.githubusercontent.com"
-        visited: set[str] = set()
+        visited.clear()
 
         async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=20.0, follow_redirects=True) as client:
             while queue and self.pages_crawled < max_pages:
