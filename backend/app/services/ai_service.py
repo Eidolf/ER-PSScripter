@@ -99,12 +99,19 @@ class AIService:
         )
 
         if knowledge_results:
-            prompt += "--- AUTHORITATIVE POWERSHELL KNOWLEDGE (SOURCE OF TRUTH) ---\n"
+            prompt += "--- AUTHORITATIVE POWERSHELL & API KNOWLEDGE (SOURCE OF TRUTH) ---\n"
+            prompt += (
+                "IMPORTANT SCHEMA RULES:\n"
+                "- When generating KQL queries, REST API calls, or cmdlet invocations, you MUST ONLY use\n"
+                "  properties, columns, and parameters that explicitly exist in the Technical Specs below.\n"
+                "- NEVER invent or assume table columns. If required data resides in another table or endpoint,\n"
+                "  join or call that specific entity.\n\n"
+            )
             for kr in knowledge_results:
                 e = kr.entity
-                prompt += f"### Concept/Cmdlet: {e.canonical_name} (Category: {e.category}, Trust: {e.trust_level})\n"
+                prompt += f"### Concept/Schema: {e.canonical_name} (Category: {e.category}, Trust: {e.trust_level})\n"
                 if e.module_name:
-                    prompt += f"Module: {e.module_name}\n"
+                    prompt += f"Module/Namespace: {e.module_name}\n"
                 if e.description:
                     prompt += f"Description: {e.description}\n"
                 if e.structured_details:
