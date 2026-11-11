@@ -101,11 +101,13 @@ class AIService:
         if knowledge_results:
             prompt += "--- AUTHORITATIVE POWERSHELL & API KNOWLEDGE (SOURCE OF TRUTH) ---\n"
             prompt += (
-                "IMPORTANT SCHEMA RULES:\n"
+                "IMPORTANT SCHEMA & QUERY RULES:\n"
                 "- When generating KQL queries, REST API calls, or cmdlet invocations, you MUST ONLY use\n"
                 "  properties, columns, and parameters that explicitly exist in the Technical Specs below.\n"
                 "- NEVER invent or assume table columns. If required data resides in another table or endpoint,\n"
-                "  join or call that specific entity.\n\n"
+                "  join or call that specific entity (e.g. '| join kind=inner (TargetTable) on Key').\n"
+                "- In PowerShell here-strings (@\" ... \"@), avoid `$left` or `$right` without escaping, or\n"
+                "  simply use 'on Column' or single-quoted here-strings (@' ... '@).\n\n"
             )
             for kr in knowledge_results:
                 e = kr.entity

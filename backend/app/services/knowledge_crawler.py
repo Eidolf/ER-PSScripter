@@ -846,6 +846,43 @@ class KnowledgeCrawlerManager:
             else:
                 self.entities_unchanged += 1
 
+            # Auto-link schema relations: find other tables/APIs that share common join keys
+            if primary_ent and primary_ent.id and table_properties:
+                curr_prop_names = {p["name"].lower(): p["name"] for p in table_properties if "name" in p}
+                common_join_keys = {"cveid", "deviceid", "userid", "aaddeviceid", "accountname", "sha256"}
+                found_keys = common_join_keys.intersection(curr_prop_names.keys())
+
+                if found_keys:
+                    other_tables = (
+                        db.query(KnowledgeEntity)
+                        .filter(
+                            KnowledgeEntity.category == "api_endpoint",
+                            KnowledgeEntity.id != primary_ent.id,
+                        )
+                        .all()
+                    )
+                    for ot in other_tables:
+                        if not ot.id or not ot.structured_details:
+                            continue
+                        ot_props = ot.structured_details.get("properties", [])
+                        ot_prop_names = {p["name"].lower() for p in ot_props if isinstance(p, dict) and "name" in p}
+                        shared_keys = found_keys.intersection(ot_prop_names)
+                        for sk in shared_keys:
+                            actual_key_name = curr_prop_names[sk]
+                            knowledge_service.add_relation(
+                                db,
+                                KnowledgeRelationCreate(
+                                    from_entity_id=primary_ent.id,
+                                    to_entity_id=ot.id,
+                                    relation_type="joins_with",
+                                    description=(
+                                        f"{primary_ent.canonical_name} joins with "
+                                        f"{ot.canonical_name} on '{actual_key_name}'"
+                                    ),
+                                    confidence=1.0,
+                                ),
+                            )
+
             # Auto-link relation: cmdlet -> module
             if module_name and primary_ent and primary_ent.id:
                 mod_entity, _ = knowledge_service.upsert_entity(
