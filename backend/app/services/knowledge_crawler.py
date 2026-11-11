@@ -509,6 +509,9 @@ class KnowledgeCrawlerManager:
         # Match Microsoft Graph and REST API docs
         if "/graph/api/" in lower or "/defender-endpoint/api/" in lower or "/api/" in lower:
             return True
+        # Match Microsoft Defender XDR and Advanced Hunting schema docs
+        if "/defender-xdr/" in lower or "advanced-hunting-" in lower:
+            return True
         # Match .NET API docs (WinForms, WPF, System.*)
         if "/dotnet/api/" in lower:
             return True
@@ -728,16 +731,14 @@ class KnowledgeCrawlerManager:
         code_snippets: list[str] = [code.get_text() for code in soup.find_all(["code", "pre"])[:15]]
         syntax_blocks: list[str] = [s.strip() for s in code_snippets if len(s) < 300][:5]
 
-        # Extract tables (e.g. REST API Properties, Parameters, or .NET members)
-        prop_headers = {"property", "property (id)", "name", "parameter", "field"}
+        # Extract tables (e.g. REST API Properties, Parameters, KQL table columns, or .NET members)
+        prop_headers = {"property", "property (id)", "name", "parameter", "field", "column name", "column"}
         table_properties: list[dict[str, str]] = []
         for table in soup.find_all("table")[:5]:
             headers = [th.get_text().strip().lower() for th in table.find_all("th")]
-            if any(h in prop_headers for h in headers):
-                name_idx = next(
-                    (i for i, h in enumerate(headers) if h in prop_headers),
-                    0,
-                )
+            matched_header = next((h for h in headers if any(ph in h for ph in prop_headers)), None)
+            if matched_header:
+                name_idx = headers.index(matched_header)
                 type_idx = next((i for i, h in enumerate(headers) if "type" in h), -1)
                 desc_idx = next((i for i, h in enumerate(headers) if "description" in h or "comments" in h), -1)
 
