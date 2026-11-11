@@ -109,6 +109,7 @@ export const KnowledgeExplorer: React.FC = () => {
         module_name: '',
         tags: '',
         source_url: '',
+        structured_details_json: '',
     });
 
     // Modal state for adding URL / Documentation Source
@@ -240,6 +241,17 @@ export const KnowledgeExplorer: React.FC = () => {
                 .split(',')
                 .map((t) => t.trim())
                 .filter(Boolean);
+
+            let parsedDetails: Record<string, unknown> = {};
+            if (newArticle.structured_details_json.trim()) {
+                try {
+                    parsedDetails = JSON.parse(newArticle.structured_details_json);
+                } catch {
+                    alert('Invalid JSON in Technical Specification. Please provide valid JSON or leave empty.');
+                    return;
+                }
+            }
+
             await axios.post(
                 '/api/v1/knowledge/entities',
                 {
@@ -252,6 +264,7 @@ export const KnowledgeExplorer: React.FC = () => {
                     source_type: 'manual_entry',
                     trust_level: 0.95,
                     confidence_score: 1.0,
+                    structured_details: parsedDetails,
                 },
                 { headers }
             );
@@ -263,10 +276,27 @@ export const KnowledgeExplorer: React.FC = () => {
                 module_name: '',
                 tags: '',
                 source_url: '',
+                structured_details_json: '',
             });
             fetchData();
         } catch (err) {
             console.error('Failed to create knowledge article:', err);
+        }
+    };
+
+    const handleDeleteEntity = async (entityId: number, entityName: string) => {
+        if (!window.confirm(`Are you sure you want to delete "${entityName}" from the knowledge base?`)) {
+            return;
+        }
+        try {
+            await axios.delete(`/api/v1/knowledge/entities/${entityId}`, { headers });
+            if (selectedEntity?.id === entityId) {
+                setSelectedEntity(null);
+            }
+            fetchData();
+        } catch (err) {
+            console.error('Failed to delete knowledge entity:', err);
+            alert('Failed to delete entity.');
         }
     };
 
@@ -633,6 +663,19 @@ export const KnowledgeExplorer: React.FC = () => {
                                         <div>Min PS: <strong>{selectedEntity.min_ps_version || 'Any'}</strong></div>
                                         <div>Edition: <strong>{selectedEntity.ps_edition}</strong></div>
                                     </div>
+
+                                    <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteEntity(selectedEntity.id, selectedEntity.canonical_name)}
+                                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-xs rounded-lg font-medium transition flex items-center gap-1.5"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                            Delete Entity
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-12 text-gray-400">
@@ -839,6 +882,8 @@ export const KnowledgeExplorer: React.FC = () => {
                                         <option value="security_guidance">Security Guidance</option>
                                         <option value="cmdlet">Cmdlet</option>
                                         <option value="module">Module</option>
+                                        <option value="api_endpoint">REST / Graph API Endpoint</option>
+                                        <option value="dotnet_class">.NET Class / GUI Component</option>
                                         <option value="authentication_method">Authentication Method</option>
                                     </select>
                                 </div>
@@ -863,6 +908,19 @@ export const KnowledgeExplorer: React.FC = () => {
                                     onChange={(e) => setNewArticle({ ...newArticle, description: e.target.value })}
                                     className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">
+                                    Technical Specification (JSON, Optional)
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    placeholder='e.g. {"properties": [{"name": "DeviceId", "type": "String"}], "syntax": ["Get-Item -Path <string>"]}'
+                                    value={newArticle.structured_details_json}
+                                    onChange={(e) => setNewArticle({ ...newArticle, structured_details_json: e.target.value })}
+                                    className="w-full px-3 py-2 border rounded-lg font-mono text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                />
+                                <p className="text-[11px] text-gray-400 mt-0.5">Authoritative technical specs, API schema properties, or syntax rules used directly by the AI generator.</p>
                             </div>
                             <div>
                                 <label className="block text-gray-700 dark:text-gray-300 font-medium mb-1">Tags (Comma separated)</label>

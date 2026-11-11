@@ -180,6 +180,14 @@ class KnowledgeService:
     def get_entity_by_id(self, db: Session, entity_id: int) -> KnowledgeEntity | None:
         return db.query(KnowledgeEntity).filter(KnowledgeEntity.id == entity_id).first()
 
+    def delete_entity(self, db: Session, entity_id: int) -> bool:
+        entity = db.query(KnowledgeEntity).filter(KnowledgeEntity.id == entity_id).first()
+        if not entity:
+            return False
+        db.delete(entity)
+        db.commit()
+        return True
+
     def list_entities(
         self,
         db: Session,

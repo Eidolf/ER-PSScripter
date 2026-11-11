@@ -453,7 +453,7 @@ class KnowledgeCrawlerManager:
                                 if (
                                     parsed_link.netloc.lower() == base_domain
                                     and link_clean not in visited
-                                    and self._is_relevant_powershell_doc(link_clean)
+                                    and self._is_relevant_doc(link_clean)
                                 ):
                                     queue.append((link_clean, depth + 1))
 
@@ -492,8 +492,8 @@ class KnowledgeCrawlerManager:
             "entities_unchanged": self.entities_unchanged,
         }
 
-    def _is_relevant_powershell_doc(self, url: str) -> bool:
-        """Filter URLs to only follow cmdlet references, modules, and relevant PowerShell docs."""
+    def _is_relevant_doc(self, url: str) -> bool:
+        """Filter URLs to follow cmdlet references, modules, REST API references, and .NET classes."""
         lower = url.lower()
         # Avoid binary assets, logins, switch-language or search links
         if any(ext in lower for ext in [".png", ".jpg", ".svg", ".zip", ".pdf", ".css", ".js"]):
@@ -505,6 +505,12 @@ class KnowledgeCrawlerManager:
         if "/powershell/module/" in lower or "/powershell/scripting/" in lower:
             return True
         if "powershellgallery.com/packages/" in lower:
+            return True
+        # Match Microsoft Graph and REST API docs
+        if "/graph/api/" in lower or "/defender-endpoint/api/" in lower or "/api/" in lower:
+            return True
+        # Match .NET API docs (WinForms, WPF, System.*)
+        if "/dotnet/api/" in lower:
             return True
         return bool(lower.endswith(".md"))
 
@@ -686,14 +692,18 @@ class KnowledgeCrawlerManager:
 
         # Extract synopsis/description from paragraph
         description = ""
-        for p in soup.find_all("p"):
-            p_text = p.get_text().strip()
-            # Ignore switch to edge warning
-            if "browser is no longer supported" in p_text.lower():
-                continue
-            if len(p_text) > 25:
-                description = p_text[:400]
-                break
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        if meta_desc and hasattr(meta_desc, "get") and meta_desc.get("content"):
+            description = str(meta_desc.get("content")).strip()[:500]
+        else:
+            for p in soup.find_all("p"):
+                p_text = p.get_text().strip()
+                # Ignore switch to edge warning
+                if "browser is no longer supported" in p_text.lower():
+                    continue
+                if len(p_text) > 25:
+                    description = p_text[:400]
+                    break
 
         # Module name if mentioned in breadcrumbs or metadata
         module_name: str | None = None
@@ -705,10 +715,41 @@ class KnowledgeCrawlerManager:
             parts = url.lower().split("powershellgallery.com/packages/")[1].split("/")
             if parts and parts[0]:
                 module_name = parts[0]
+        elif "/dotnet/api/" in url.lower():
+            parts = url.lower().split("/dotnet/api/")[1].split("?")[0].split("/")
+            if parts and parts[0]:
+                # Namespace e.g. System.Windows.Forms
+                ns_parts = parts[0].split(".")
+                module_name = ".".join(ns_parts[:-1]) if len(ns_parts) > 1 else parts[0]
+        elif "/graph/api/" in url.lower() or "/defender-endpoint/api/" in url.lower() or "/api/" in url.lower():
+            module_name = "Microsoft.Graph / REST API"
 
         # Extract code blocks
         code_snippets: list[str] = [code.get_text() for code in soup.find_all(["code", "pre"])[:15]]
-        syntax_blocks: list[str] = [s.strip() for s in code_snippets if "-" in s and len(s) < 250][:5]
+        syntax_blocks: list[str] = [s.strip() for s in code_snippets if len(s) < 300][:5]
+
+        # Extract tables (e.g. REST API Properties, Parameters, or .NET members)
+        prop_headers = {"property", "property (id)", "name", "parameter", "field"}
+        table_properties: list[dict[str, str]] = []
+        for table in soup.find_all("table")[:5]:
+            headers = [th.get_text().strip().lower() for th in table.find_all("th")]
+            if any(h in prop_headers for h in headers):
+                name_idx = next(
+                    (i for i, h in enumerate(headers) if h in prop_headers),
+                    0,
+                )
+                type_idx = next((i for i, h in enumerate(headers) if "type" in h), -1)
+                desc_idx = next((i for i, h in enumerate(headers) if "description" in h or "comments" in h), -1)
+
+                for tr in table.find_all("tr")[1:50]:
+                    cells = [td.get_text().strip() for td in tr.find_all("td")]
+                    if len(cells) > name_idx and cells[name_idx]:
+                        prop_info = {"name": cells[name_idx]}
+                        if type_idx != -1 and len(cells) > type_idx:
+                            prop_info["type"] = cells[type_idx]
+                        if desc_idx != -1 and len(cells) > desc_idx:
+                            prop_info["description"] = cells[desc_idx][:250]
+                        table_properties.append(prop_info)
 
         primary_ent = None
         if self._is_valid_cmdlet(candidate_cmd):
@@ -726,6 +767,74 @@ class KnowledgeCrawlerManager:
                     trust_level=trust_val,
                     confidence_score=1.0,
                     structured_details={"syntax": syntax_blocks, "url": url, "module": module_name},
+                ),
+            )
+            extracted_count += 1
+            if outcome == "created":
+                self.entities_created += 1
+            elif outcome == "updated":
+                self.entities_updated += 1
+            else:
+                self.entities_unchanged += 1
+        elif "/dotnet/api/" in url.lower() and h1_text:
+            # .NET Class, Enum, Interface, or Struct
+            net_name = h1_text.replace(" Class", "").replace(" Struct", "").replace(" Interface", "").strip()
+            entity_cat = "dotnet_class"
+            dotnet_specs: dict[str, Any] = {
+                "url": url,
+                "namespace": module_name,
+                "properties": table_properties[:30],
+                "syntax": syntax_blocks[:3],
+            }
+            primary_ent, outcome = knowledge_service.upsert_entity(
+                db,
+                KnowledgeEntityCreate(
+                    canonical_name=net_name,
+                    category=entity_cat,
+                    description=description or f".NET API documentation for {net_name}",
+                    tags=["dotnet", "gui" if "forms" in url.lower() or "wpf" in url.lower() else "api"],
+                    source_id=source.id,
+                    source_url=url,
+                    source_type=str(source.source_type),
+                    module_name=module_name,
+                    trust_level=trust_val,
+                    confidence_score=1.0,
+                    structured_details=dotnet_specs,
+                ),
+            )
+            extracted_count += 1
+            if outcome == "created":
+                self.entities_created += 1
+            elif outcome == "updated":
+                self.entities_updated += 1
+            else:
+                self.entities_unchanged += 1
+        elif ("/api/" in url.lower() or table_properties) and h1_text:
+            # REST API Endpoint / Schema (Graph API, Defender for Endpoint, etc.)
+            api_name = h1_text
+            # Extract HTTP endpoints from code blocks if available
+            endpoints: list[str] = [
+                s for s in syntax_blocks if any(verb in s for verb in ["GET", "POST", "PATCH", "DELETE", "PUT"])
+            ]
+            api_specs: dict[str, Any] = {
+                "url": url,
+                "endpoints": endpoints[:5],
+                "properties": table_properties[:40],
+            }
+            primary_ent, outcome = knowledge_service.upsert_entity(
+                db,
+                KnowledgeEntityCreate(
+                    canonical_name=api_name,
+                    category="api_endpoint",
+                    description=description or f"API Reference documentation from {url}",
+                    tags=["api", "rest", "schema", "graph" if "graph" in url.lower() else "defender"],
+                    source_id=source.id,
+                    source_url=url,
+                    source_type=str(source.source_type),
+                    module_name=module_name,
+                    trust_level=trust_val,
+                    confidence_score=1.0,
+                    structured_details=api_specs,
                 ),
             )
             extracted_count += 1

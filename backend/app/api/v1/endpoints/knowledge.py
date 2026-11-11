@@ -77,6 +77,18 @@ def create_knowledge_entity(
     return entity
 
 
+@router.delete("/entities/{entity_id}", response_model=dict[str, Any])
+def delete_knowledge_entity(
+    entity_id: int,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Delete a specific knowledge entity."""
+    success = knowledge_service.delete_entity(db, entity_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Knowledge entity not found")
+    return {"status": "success", "message": f"Entity {entity_id} deleted."}
+
+
 @router.get("/graph", response_model=dict[str, Any])
 def get_knowledge_graph(
     center_id: int | None = Query(None),
