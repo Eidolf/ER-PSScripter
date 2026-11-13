@@ -47,7 +47,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
 
     # 2. Key Modules & Cmdlets
     # Microsoft.PowerShell.Management
-    mod_mgmt = knowledge_service.upsert_entity(
+    mod_mgmt, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Microsoft.PowerShell.Management",
@@ -66,7 +66,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
         ),
     )
 
-    cmd_get_process = knowledge_service.upsert_entity(
+    cmd_get_process, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Get-Process",
@@ -108,7 +108,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
         ),
     )
 
-    cmd_stop_process = knowledge_service.upsert_entity(
+    cmd_stop_process, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Stop-Process",
@@ -140,7 +140,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
     )
 
     # Microsoft Graph Module & Cmdlets
-    mod_graph = knowledge_service.upsert_entity(
+    mod_graph, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Microsoft.Graph.Authentication",
@@ -162,7 +162,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
         ),
     )
 
-    cmd_connect_graph = knowledge_service.upsert_entity(
+    cmd_connect_graph, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Connect-MgGraph",
@@ -208,7 +208,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
         ),
     )
 
-    cmd_get_mguser = knowledge_service.upsert_entity(
+    cmd_get_mguser, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="Get-MgUser",
@@ -267,7 +267,7 @@ def seed_powershell_knowledge_base(db: Session) -> None:
         ),
     )
 
-    sec_credentials = knowledge_service.upsert_entity(
+    sec_credentials, _ = knowledge_service.upsert_entity(
         db,
         KnowledgeEntityCreate(
             canonical_name="PowerShell Secure Credential Management",
