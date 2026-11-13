@@ -104,8 +104,11 @@ class AIService:
                 "IMPORTANT SCHEMA & QUERY RULES:\n"
                 "- When generating KQL queries, REST API calls, or cmdlet invocations, you MUST ONLY use\n"
                 "  properties, columns, and parameters that explicitly exist in the Technical Specs below.\n"
-                "- NEVER invent or assume table columns. If required data resides in another table or endpoint,\n"
-                "  join or call that specific entity (e.g. '| join kind=inner (TargetTable) on Key').\n"
+                "- STRICT PROHIBITION ON HALLUCINATED COLUMNS: In KQL queries (| project ...), NEVER include\n"
+                "  columns that are not listed in the schema of the queried or joined tables (e.g. do NOT project\n"
+                "  'FirstDetected' or 'ExposedDevicesCount' unless they are explicitly present in the schema).\n"
+                "- If an attribute (e.g. Criticality) belongs to another table (e.g. DeviceInfo.AssetValue),\n"
+                "  you MUST join that table (see Schema Relationships below) and project the actual column name.\n"
                 "- In PowerShell here-strings (@\" ... \"@), avoid `$left` or `$right` without escaping, or\n"
                 "  simply use 'on Column' or single-quoted here-strings (@' ... '@).\n\n"
             )
@@ -118,6 +121,22 @@ class AIService:
                     prompt += f"Description: {e.description}\n"
                 if e.structured_details:
                     prompt += f"Technical Specs: {e.structured_details}\n"
+                
+                # Format relationships (e.g. joins_with, requires_module)
+                related_info = []
+                for rel in getattr(e, "outgoing_relations", []):
+                    rel_type = getattr(rel, "relation_type", "")
+                    desc = getattr(rel, "description", "")
+                    if rel_type == "joins_with" and desc:
+                        related_info.append(f"Join capability: {desc}")
+                for rel in getattr(e, "incoming_relations", []):
+                    rel_type = getattr(rel, "relation_type", "")
+                    desc = getattr(rel, "description", "")
+                    if rel_type == "joins_with" and desc:
+                        related_info.append(f"Join capability: {desc}")
+                
+                if related_info:
+                    prompt += f"Schema Relationships: {'; '.join(related_info)}\n"
                 prompt += "\n"
             prompt += "--- END AUTHORITATIVE KNOWLEDGE ---\n\n"
 
