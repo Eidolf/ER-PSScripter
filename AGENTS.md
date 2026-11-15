@@ -2,6 +2,12 @@
 
 This handbook provides architectural maps, rules, commands, and workflows for AI agents developing in the ER-PSScripter repository.
 
+## Project context
+
+- [Project profile](https://github.com/Eidolf/ER-KnowledgeBase/blob/main/Projects/ER-PSScripter/README.md) (private; AI use requires explicit approval).
+- [Knowledge-Platform](https://github.com/Eidolf/Knowledge-Platform) and, for UI work, [ER-DesignSystem](https://github.com/Eidolf/ER-DesignSystem).
+- Update the profile and affected views when access and approval permit; otherwise report the pending update.
+
 ## 1. Token Efficiency Rules
 
 - **Strict Bullet Points**: Explain findings, rationale, and designs using concise bullet points. Avoid filler text or conversational pleasantries.

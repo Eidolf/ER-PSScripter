@@ -9,6 +9,12 @@
 ## Overview
 ER-PSScripter is a production-ready application designed to analyze, manage, and generate high-quality PowerShell scripts. Leveraging AI and best practices, it turns requirements into PSScriptAnalyzer-compliant code.
 
+## Project ecosystem
+
+- [Agent instructions](AGENTS.md)
+- [Project profile](https://github.com/Eidolf/ER-KnowledgeBase/blob/main/Projects/ER-PSScripter/README.md) (private)
+- [Knowledge-Platform](https://github.com/Eidolf/Knowledge-Platform)
+
 ## Architecture
 - **Backend**: FastAPI (Python) + Pydantic + SQLAlchemy (SQLite/Postgres)
 - **Frontend**: React + Vite + TypeScript
