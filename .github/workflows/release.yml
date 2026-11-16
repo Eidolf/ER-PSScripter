@@ -10,12 +10,15 @@ on:
         type: choice
         options:
           - nightly
-          - beta
           - stable
 
 permissions:
   contents: write
   packages: write
+
+concurrency:
+  group: er-psscripter-release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -23,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -33,32 +37,49 @@ jobs:
       # --- Versioning ---
       - name: Calculate Version
         id: version
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          VERSION=$(python3 version_manager.py --release-type ${{ inputs.release_type }} --write)
+          VERSION=$(python3 version_manager.py --release-type "$RELEASE_TYPE" --run-id "$RUN_ID")
           echo "Calculated Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Commit & Push Version
+        if: inputs.release_type == 'stable'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          printf '%s\n' "$VERSION" > VERSION
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add VERSION
-          git commit -m "Bump version to ${{ steps.version.outputs.version }}"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump version to $VERSION"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       # --- Tagging ---
       - name: Create Tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git tag ${{ steps.version.outputs.version }}
-          git push origin ${{ steps.version.outputs.version }}
+          TAG="v${VERSION}"
+          if git show-ref --verify --quiet "refs/tags/${TAG}"; then
+            echo "Tag already exists: ${TAG}" >&2
+            exit 1
+          fi
+          git tag "$TAG"
+          git push origin "refs/tags/${TAG}"
 
       # --- Release Notes ---
       - name: Generate Release Notes
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
-          prerelease: ${{ inputs.release_type != 'stable' }}
+          prerelease: ${{ inputs.release_type == 'nightly' }}
+          make_latest: ${{ inputs.release_type == 'stable' && 'true' || 'false' }}
 
       - name: Lowercase Repo
         run: echo "REPO_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
@@ -97,14 +118,4 @@ jobs:
             ${{ inputs.release_type == 'stable' && format('ghcr.io/{0}/frontend:latest', env.REPO_NAME) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # --- Post-Release Dev Bump ---
-      - name: Bump to Dev
-        if: inputs.release_type == 'beta'
-        run: |
-          # Bump to dev version only after beta releases if needed
-          NEXT_DEV=$(python3 version_manager.py --release-type dev --write)
-          git add VERSION
-          git commit -m "Bump to dev version $NEXT_DEV [skip ci]"
-          git push
 

@@ -1,86 +1,130 @@
 #!/usr/bin/env python3
-import sys
-import re
-from datetime import datetime
+"""Calculate ER-PSScripter release versions from stable Git tags."""
+
 import argparse
-import os
+import re
+import subprocess
+from collections.abc import Iterable
+from datetime import datetime, timezone
+from pathlib import Path
 
-VERSION_FILE = "VERSION"
+VERSION_FILE = Path("VERSION")
+STABLE_TAG_PATTERN = re.compile(r"^v?(?P<year>\d{4})\.(?P<month>\d{1,2})\.(?P<patch>\d+)$")
+RUN_ID_PATTERN = re.compile(r"^\d+$")
 
-def read_version():
-    if not os.path.exists(VERSION_FILE):
-        return "0.0.0"
-    with open(VERSION_FILE, "r") as f:
-        return f.read().strip()
 
-def write_version(version):
-    with open(VERSION_FILE, "w") as f:
-        f.write(version)
-    # print(f"Updated VERSION to {version}") # Quietly update
-    pass
-
-def get_date_parts():
-    now = datetime.now()
-    return now.year, now.month, now.strftime("%Y%m%d.%H%M")
-
-def parse_version(version_str):
-    # Regex to parse YYYY.MM.PATCH(-suffix)?
-    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$", version_str)
-    if not match:
+def parse_stable_tag(tag: str) -> tuple[int, int, int] | None:
+    """Return a stable CalVer tuple for either legacy or prefixed tags."""
+    match = STABLE_TAG_PATTERN.fullmatch(tag)
+    if match is None:
         return None
-    return int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4)
 
-def calculate_next_version(current_version, release_type):
-    year, month, timestamp = get_date_parts()
-    parsed = parse_version(current_version)
-    
-    if parsed:
-        curr_year, curr_month, curr_patch, curr_suffix = parsed
+    year = int(match.group("year"))
+    month = int(match.group("month"))
+    patch = int(match.group("patch"))
+    if year < 1 or not 1 <= month <= 12 or patch < 1:
+        return None
+    return year, month, patch
+
+
+def get_git_tags() -> list[str]:
+    """Read all local Git tags, raising an error if Git cannot provide them."""
+    try:
+        result = subprocess.run(
+            ["git", "tag", "--list"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("Git is required to determine the stable version.") from error
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip() or str(error)
+        raise RuntimeError(f"Unable to read Git tags: {detail}") from error
+    return result.stdout.splitlines()
+
+
+def calculate_next_version(
+    release_type: str,
+    tags: Iterable[str],
+    now: datetime | None = None,
+    run_id: str | None = None,
+) -> str:
+    """Calculate the current-month stable candidate from stable tags only."""
+    if release_type not in {"stable", "nightly"}:
+        raise ValueError(f"Unsupported release type: {release_type}")
+
+    current_time = datetime.now(timezone.utc) if now is None else now
+    if current_time.tzinfo is None:
+        raise ValueError("The supplied time must include a timezone.")
+    current_time = current_time.astimezone(timezone.utc)
+    current_period = (current_time.year, current_time.month)
+
+    stable_versions = [
+        version
+        for tag in tags
+        if (version := parse_stable_tag(tag)) is not None
+    ]
+    latest_stable = max(stable_versions, default=None)
+
+    if latest_stable is not None and latest_stable[:2] > current_period:
+        raise ValueError(
+            "The latest stable tag is in a future UTC month; refusing to create "
+            "a version that would move backwards."
+        )
+
+    if latest_stable is not None and latest_stable[:2] == current_period:
+        patch = latest_stable[2] + 1
     else:
-        # Fallback if version file is empty or invalid
-        curr_year, curr_month, curr_patch, curr_suffix = 0, 0, 0, None
+        patch = 1
 
-    # Logic: Reset patch if Year/Month changes, else increment patch
-    if year != curr_year or month != curr_month:
-        new_patch = 1
-    elif curr_suffix:
-        # If transitioning from a pre-release or dev version (e.g. 2026.10.4-dev -> 2026.10.4),
-        # keep the current patch number so stable does not skip a version
-        new_patch = curr_patch
-    else:
-        # Standard release: increment patch
-        new_patch = curr_patch + 1
-
-    base_version = f"{year}.{month}.{new_patch}"
-
+    base_version = f"{current_time.year}.{current_time.month}.{patch}"
     if release_type == "stable":
         return base_version
-    elif release_type == "beta":
-        return f"{base_version}-beta"
-    elif release_type == "nightly":
-        # Nightly often reuses the base version but adds unique timestamp
-        # To avoid patch explosion, nightly might not stick to strict Patch+1 if run multiple times a day
-        # But for simplicity, we follow the requested format: YYYY.MM.PATCH-nightly.TIMESTAMP
-        return f"{base_version}-nightly.{timestamp}"
-    elif release_type == "dev":
-        return f"{base_version}-dev"
-    else:
-        raise ValueError(f"Unknown release type: {release_type}")
 
-def main():
-    parser = argparse.ArgumentParser(description="Manage project versioning.")
-    parser.add_argument("--release-type", choices=["stable", "beta", "nightly", "dev"], required=True, help="Type of release")
-    parser.add_argument("--write", action="store_true", help="Write new version to VERSION file")
-    
+    if run_id is None or RUN_ID_PATTERN.fullmatch(run_id) is None:
+        raise ValueError("Nightly releases require a numeric unique run ID.")
+
+    timestamp = current_time.strftime("%Y%m%d.%H%M")
+    return f"{base_version}-nightly.{timestamp}.{run_id}"
+
+
+def write_version(version: str) -> None:
+    """Write the stable VERSION mirror."""
+    VERSION_FILE.write_text(f"{version}\n", encoding="utf-8")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--release-type",
+        choices=("nightly", "stable"),
+        required=True,
+    )
+    parser.add_argument("--run-id")
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the calculated stable version to VERSION.",
+    )
     args = parser.parse_args()
-    
-    current_version = read_version()
-    new_version = calculate_next_version(current_version, args.release_type)
-    
-    print(new_version)
-    
+
+    if args.write and args.release_type != "stable":
+        parser.error("--write is only supported for stable releases.")
+
+    try:
+        version = calculate_next_version(
+            args.release_type,
+            get_git_tags(),
+            run_id=args.run_id,
+        )
+    except (RuntimeError, ValueError) as error:
+        parser.error(str(error))
+
+    print(version)
     if args.write:
-        write_version(new_version)
+        write_version(version)
+
 
 if __name__ == "__main__":
     main()
