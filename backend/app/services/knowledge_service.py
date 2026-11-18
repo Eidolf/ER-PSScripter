@@ -42,7 +42,13 @@ class KnowledgeService:
             db.refresh(source)
         return source
 
-    def upsert_entity(self, db: Session, entity_in: KnowledgeEntityCreate) -> KnowledgeEntity:
+    def upsert_entity(
+        self, db: Session, entity_in: KnowledgeEntityCreate
+    ) -> tuple[KnowledgeEntity, str]:
+        """Upsert a knowledge entity.
+
+        Returns (entity, outcome) where outcome is 'created', 'updated', or 'unchanged'.
+        """
         content_hash = self.compute_content_hash(entity_in.canonical_name, entity_in.structured_details)
 
         # Check for existing canonical entity in the same category
@@ -56,34 +62,68 @@ class KnowledgeService:
         )
 
         if existing:
-            # Merging strategy: Official Microsoft sources take precedence. Higher trust updates details.
+            # If content hash and tags match and existing trust is equal or higher, nothing changed
             existing_trust = float(existing.trust_level) if existing.trust_level is not None else 0.0
             existing_conf = float(existing.confidence_score) if existing.confidence_score is not None else 0.0
+            current_tags = set(existing.tags or [])
+            new_tags = set(entity_in.tags or [])
+            has_new_tags = not new_tags.issubset(current_tags)
+
+            if existing.content_hash == content_hash and not has_new_tags and entity_in.trust_level <= existing_trust:
+                return existing, "unchanged"
+
+            # Merging strategy: Official Microsoft sources take precedence. Higher trust updates details.
+            changed = False
             if entity_in.trust_level >= existing_trust:
-                existing.description = entity_in.description or existing.description
-                existing.source_url = entity_in.source_url or existing.source_url
-                existing.source_type = entity_in.source_type
-                existing.trust_level = max(existing_trust, float(entity_in.trust_level))  # type: ignore[assignment]
-                existing.confidence_score = max(existing_conf, float(entity_in.confidence_score))  # type: ignore[assignment]
-                existing.ps_edition = entity_in.ps_edition or existing.ps_edition
-                existing.min_ps_version = entity_in.min_ps_version or existing.min_ps_version
-                existing.module_name = entity_in.module_name or existing.module_name
+                if entity_in.description and entity_in.description != existing.description:
+                    existing.description = entity_in.description
+                    changed = True
+                if entity_in.source_url and entity_in.source_url != existing.source_url:
+                    existing.source_url = entity_in.source_url
+                    changed = True
+                if entity_in.source_type != existing.source_type:
+                    existing.source_type = entity_in.source_type
+                    changed = True
+                new_trust = max(existing_trust, float(entity_in.trust_level))
+                if new_trust != existing_trust:
+                    existing.trust_level = new_trust  # type: ignore[assignment]
+                    changed = True
+                new_conf = max(existing_conf, float(entity_in.confidence_score))
+                if new_conf != existing_conf:
+                    existing.confidence_score = new_conf  # type: ignore[assignment]
+                    changed = True
+                if entity_in.ps_edition and entity_in.ps_edition != existing.ps_edition:
+                    existing.ps_edition = entity_in.ps_edition
+                    changed = True
+                if entity_in.min_ps_version and entity_in.min_ps_version != existing.min_ps_version:
+                    existing.min_ps_version = entity_in.min_ps_version
+                    changed = True
+                if entity_in.module_name and entity_in.module_name != existing.module_name:
+                    existing.module_name = entity_in.module_name
+                    changed = True
 
                 # Merge structured details
                 merged_details = dict(existing.structured_details or {})
-                merged_details.update(entity_in.structured_details or {})
+                if entity_in.structured_details:
+                    for k, v in entity_in.structured_details.items():
+                        if merged_details.get(k) != v:
+                            merged_details[k] = v
+                            changed = True
                 existing.structured_details = merged_details
 
-            # Combine tags uniquely
-            current_tags = set(existing.tags or [])
-            current_tags.update(entity_in.tags or [])
-            existing.tags = list(current_tags)
-            existing.content_hash = content_hash
-            existing.date_updated = datetime.datetime.utcnow()
+            if has_new_tags:
+                current_tags.update(new_tags)
+                existing.tags = list(current_tags)
+                changed = True
 
-            db.commit()
-            db.refresh(existing)
-            return existing
+            if changed or existing.content_hash != content_hash:
+                existing.content_hash = content_hash
+                existing.date_updated = datetime.datetime.utcnow()
+                db.commit()
+                db.refresh(existing)
+                return existing, "updated"
+
+            return existing, "unchanged"
 
         new_entity = KnowledgeEntity(
             canonical_name=entity_in.canonical_name,
@@ -104,7 +144,7 @@ class KnowledgeService:
         db.add(new_entity)
         db.commit()
         db.refresh(new_entity)
-        return new_entity
+        return new_entity, "created"
 
     def add_relation(self, db: Session, relation_in: KnowledgeRelationCreate) -> KnowledgeRelation:
         existing = (
@@ -139,6 +179,14 @@ class KnowledgeService:
 
     def get_entity_by_id(self, db: Session, entity_id: int) -> KnowledgeEntity | None:
         return db.query(KnowledgeEntity).filter(KnowledgeEntity.id == entity_id).first()
+
+    def delete_entity(self, db: Session, entity_id: int) -> bool:
+        entity = db.query(KnowledgeEntity).filter(KnowledgeEntity.id == entity_id).first()
+        if not entity:
+            return False
+        db.delete(entity)
+        db.commit()
+        return True
 
     def list_entities(
         self,

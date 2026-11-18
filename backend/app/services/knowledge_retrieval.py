@@ -13,8 +13,12 @@ logger = logging.getLogger(__name__)
 class KnowledgeRetrievalService:
     @staticmethod
     def extract_powershell_tokens(query: str) -> list[str]:
-        # Extract potential cmdlet-like words (Verb-Noun) or module names
-        tokens = re.findall(r"\b[A-Za-z]+-[A-Za-z0-9]+\b|\b[A-Za-z0-9_.]+\b", query)
+        # Extract cmdlet-like words (Verb-Noun), PascalCase identifiers, table/module names, or dotted namespaces
+        # e.g. DeviceTvmSoftwareVulnerabilities, Connect-MgGraph, Microsoft.Graph.Authentication
+        tokens = re.findall(
+            r"\b[A-Za-z]+-[A-Za-z0-9]+\b|\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b|\b[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+\b",
+            query,
+        )
         return list(set(tokens))
 
     async def retrieve_knowledge_for_prompt(
@@ -22,32 +26,50 @@ class KnowledgeRetrievalService:
     ) -> list[KnowledgeSearchResult]:
         results: dict[int, KnowledgeSearchResult] = {}
 
-        # 1. Exact & Token/Cmdlet Matching (High confidence)
+        # 1. Exact & Token/Cmdlet/PascalCase Table Matching (Highest confidence)
         tokens = self.extract_powershell_tokens(prompt)
         for token in tokens:
-            if "-" in token or "." in token:
-                matches = (
-                    db.query(KnowledgeEntity)
-                    .filter(KnowledgeEntity.canonical_name.ilike(token), KnowledgeEntity.trust_level >= min_trust)
-                    .all()
+            matches = (
+                db.query(KnowledgeEntity)
+                .filter(
+                    (KnowledgeEntity.canonical_name.ilike(token))
+                    | (KnowledgeEntity.canonical_name.ilike(f"{token}%")),
+                    KnowledgeEntity.trust_level >= min_trust,
                 )
-                for m in matches:
-                    m_id = int(m.id)  # type: ignore[arg-type]
-                    m_trust = float(m.trust_level)  # type: ignore[arg-type]
-                    relevance = 1.0 * m_trust
-                    results[m_id] = KnowledgeSearchResult(
-                        entity=KnowledgeEntityResponse.model_validate(m),
-                        relevance_score=relevance,
-                        matched_by="exact",
-                    )
+                .all()
+            )
+            for m in matches:
+                m_id = int(m.id)  # type: ignore[arg-type]
+                m_trust = float(m.trust_level)  # type: ignore[arg-type]
+                relevance = 1.0 * m_trust
+                results[m_id] = KnowledgeSearchResult(
+                    entity=KnowledgeEntityResponse.model_validate(m),
+                    relevance_score=relevance,
+                    matched_by="exact",
+                )
 
-        # 2. Keyword Search across canonical name & description
-        words = [
-            w
-            for w in re.findall(r"\w{3,}", prompt)
-            if w.lower() not in {"the", "and", "for", "with", "script", "powershell"}
+        # 2. Comprehensive Keyword & Technical Term Search
+        stopwords = {
+            # English common stopwords
+            "the", "and", "for", "with", "script", "powershell", "this", "that", "from",
+            "are", "was", "have", "has", "can", "could", "should", "would", "about",
+            # German common stopwords
+            "der", "die", "das", "und", "für", "mit", "skript", "nach", "von",
+            "eine", "einer", "eines", "einem", "einen", "erweitere", "mein", "bisheriges",
+            "bitte", "erstelle", "zeige", "kannst", "frage", "aktuell", "diese", "dieses",
+            "wichtig", "behalte", "anhand", "sofern", "über", "uber", "falls",
+        }
+
+        # Extract words with 4+ characters, filter out stopwords
+        raw_words = [
+            w for w in re.findall(r"\b[A-Za-z0-9_-]{4,}\b", prompt)
+            if w.lower() not in stopwords
         ]
-        for word in words[:5]:
+        # Preserve uniqueness while maintaining order
+        unique_words: list[str] = list(dict.fromkeys(raw_words))
+
+        # Query up to 15 relevant domain keywords across the full prompt text
+        for word in unique_words[:15]:
             matches = (
                 db.query(KnowledgeEntity)
                 .filter(
@@ -62,7 +84,7 @@ class KnowledgeRetrievalService:
                 m_id = int(m.id)  # type: ignore[arg-type]
                 if m_id not in results:
                     m_trust = float(m.trust_level)  # type: ignore[arg-type]
-                    score = 0.7 * m_trust
+                    score = 0.75 * m_trust
                     results[m_id] = KnowledgeSearchResult(
                         entity=KnowledgeEntityResponse.model_validate(m),
                         relevance_score=score,
